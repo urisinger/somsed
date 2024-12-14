@@ -16,8 +16,6 @@ impl From<u32> for ExpressionId {
 pub struct Expressions {
     pub exprs: HashMap<ExpressionId, Expr>,
     idents: HashMap<String, ExpressionId>,
-
-    pub max_id: u32,
 }
 
 impl Default for Expressions {
@@ -25,7 +23,6 @@ impl Default for Expressions {
         Self {
             exprs: Default::default(),
             idents: Default::default(),
-            max_id: 0,
         }
     }
 }
@@ -43,14 +40,7 @@ impl Expressions {
         }
     }
 
-    #[allow(unused_must_use)]
-    pub fn add_expr(&mut self, s: &str) -> Result<ExpressionId> {
-        self.set_expr(self.max_id, s)?;
-        self.max_id += 1;
-        Ok((self.max_id - 1).into())
-    }
-
-    pub fn set_expr(&mut self, id: impl Into<ExpressionId>, s: &str) -> Result<()> {
+    pub fn insert_expr(&mut self, id: impl Into<ExpressionId>, s: &str) -> Result<()> {
         let k = id.into();
         self.parse_expr(s, k).map(|expr| {
             self.exprs.insert(k, expr);

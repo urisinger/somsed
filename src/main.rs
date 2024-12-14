@@ -26,12 +26,21 @@ mod graph;
 
 static DCG_FONT: &[u8; 45324] = include_bytes!("./dcg-icons-2024-08-02.ttf");
 
+struct UnsafeContext(inkwell::context::Context);
+
+unsafe impl Send for UnsafeContext {}
+unsafe impl Sync for UnsafeContext {}
+
+use inkwell::context::Context;
+use once_cell::sync::Lazy;
+
+static GLOBAL_CONTEXT: Lazy<UnsafeContext> = Lazy::new(|| UnsafeContext(Context::create()));
 fn main() -> iced::Result {
     {
         iced::application("Somsed", Somsed::update, Somsed::view)
             .font(DCG_FONT)
             .antialiasing(true)
-            .run_with(move || (Somsed::new(), Task::none()))?;
+            .run_with(move || (Somsed::new(&GLOBAL_CONTEXT.0), Task::none()))?;
     }
     Ok(())
 }
@@ -52,8 +61,8 @@ enum PaneType {
     Sidebar,
 }
 
-struct Somsed {
-    context: inkwell::context::Context,
+struct Somsed<'a> {
+    context: &'a inkwell::context::Context,
     panes: pane_grid::State<PaneType>,
     graph_caches: HashMap<ExpressionId, Cache>,
     parsed_expressions: Expressions,
@@ -61,9 +70,11 @@ struct Somsed {
 
     errors: HashMap<ExpressionId, String>,
 
-    compiled_eqs: CompiledExprs<'static>,
+    compiled_eqs: CompiledExprs<'a>,
 
     shown_error: Option<ExpressionId>,
+
+    pub max_id: u32,
 
     scale: f32,
     mid: Vector,
@@ -81,8 +92,8 @@ impl<'a> Options<'a> {
     }
 }
 
-impl Somsed {
-    fn new() -> Self {
+impl<'a> Somsed<'a> {
+    fn new(options: &'a inkwell::context::Context) -> Self {
         let graph_caches = HashMap::new();
         let expressions = Expressions::new();
 
@@ -96,8 +107,9 @@ impl Somsed {
             scale: 100.0,
             mid: Vector { x: 0.0, y: 0.0 },
             resolution: 1000,
-            context: inkwell::context::Context::create(),
+            context: options,
             errors: HashMap::new(),
+            max_id: 0,
 
             parsed_expressions: expressions,
             expressions: HashMap::new(),
@@ -143,25 +155,40 @@ impl Somsed {
                 self.mid = self.mid + p;
                 self.clear_caches();
             }
-            Message::EquationChanged(i, s) => {
-                self.parsed_expressions.set_expr(i, &s);
+            Message::EquationChanged(id, s) => {
+                match self.parsed_expressions.insert_expr(id, &s) {
+                    Ok(()) => {
+                        self.compiled_eqs =
+                            compile_all_exprs(self.context, &self.parsed_expressions);
 
-                self.compiled_eqs = compile_all_exprs(&self.context, &self.parsed_expressions);
-
-                self.graph_caches[&i].clear();
+                        self.graph_caches
+                            .entry(id)
+                            .or_insert_with(|| Cache::new())
+                            .clear();
+                    }
+                    Err(e) => {
+                        eprintln!("failed to parse eq: {e}");
+                    }
+                }
+                self.expressions.insert(id, s);
             }
             Message::EquationAdded(s) => {
-                self.parsed_expressions.add_expr(&s);
+                let id = ExpressionId(self.max_id);
+                match self.parsed_expressions.insert_expr(id, &s) {
+                    Ok(()) => {
+                        self.graph_caches.insert(id, Cache::new());
+                        self.compiled_eqs =
+                            compile_all_exprs(self.context, &self.parsed_expressions);
+                        return focus(Id::new(format!("equation_{}", self.max_id)));
+                    }
+                    Err(e) => {
+                        eprintln!("failed to parse eq: {e}");
+                    }
+                };
 
-                self.graph_caches.insert(
-                    ExpressionId(self.parsed_expressions.max_id - 1),
-                    Cache::new(),
-                );
-                self.compiled_eqs = compile_all_exprs(&self.context, &self.parsed_expressions);
-                return focus(Id::new(format!(
-                    "equation_{}",
-                    self.parsed_expressions.max_id - 1
-                )));
+                self.expressions.insert(id, s);
+
+                self.max_id += 1;
             }
             Message::Scaled(scale, mid) => {
                 self.scale = scale;
