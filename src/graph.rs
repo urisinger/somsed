@@ -15,63 +15,28 @@ use iced::{
 
 use crate::Message;
 
-pub struct GraphRenderer<'a, 'context> {
+pub struct GraphRenderer<'a> {
     scale: f32,
     mid: Vector,
-    resolution: u32,
 
-    exprs: &'a CompiledExprs<'context>,
+    points: &'a HashMap<ExpressionId, Vec<Option<Vector>>>,
     graph_caches: &'a HashMap<ExpressionId, Cache>,
 }
 
-impl<'a, 'context> GraphRenderer<'a, 'context> {
+impl<'a> GraphRenderer<'a> {
     pub fn new(
-        exprs: &'a CompiledExprs<'context>,
+        points: &'a HashMap<ExpressionId, Vec<Option<Vector>>>,
         graph_caches: &'a HashMap<ExpressionId, Cache>,
         scale: f32,
         mid: Vector,
-        resolution: u32,
     ) -> Self {
         Self {
-            exprs,
+            points,
             graph_caches,
             scale,
             mid,
-            resolution,
         }
     }
-}
-
-pub fn points(
-    ast: &ExplicitJitFn,
-    range: f32,
-    mid: Vector,
-    resolution: u32,
-) -> Result<Vec<Option<Vector>>> {
-    let mut points = Vec::with_capacity(resolution as usize);
-
-    let min = mid.x - range / 2.0;
-    let dx = range / resolution as f32;
-
-    for i in 0..resolution {
-        let x = i as f64 * dx as f64 + min as f64;
-
-        let y = unsafe {
-            match ast {
-                ExplicitJitFn::Number(jit_func) => jit_func.call(x),
-                ExplicitJitFn::List(_) => {
-                    return Err(anyhow!("expected a numeric return value, got list type"))
-                }
-            }
-        };
-
-        points.push(Some(Vector {
-            x: x as f32,
-            y: y as f32,
-        }));
-    }
-
-    Ok(points)
 }
 
 pub enum GraphState {
@@ -96,7 +61,7 @@ pub fn translate_coord(point: f32, mid: f32, scale: f32, size: f32) -> f32 {
     (point - mid) * scale + size / 2.0
 }
 
-impl<'a, 'context> Program<Message> for GraphRenderer<'a, 'context> {
+impl<'a> Program<Message> for GraphRenderer<'a> {
     type State = GraphState;
     fn draw(
         &self,
@@ -106,53 +71,27 @@ impl<'a, 'context> Program<Message> for GraphRenderer<'a, 'context> {
         bounds: iced::Rectangle,
         _: Cursor,
     ) -> Vec<Geometry> {
-        let graphs = self.exprs.compiled.iter().map(|(i, graph)| {
-            self.graph_caches[i].draw(renderer, bounds.size(), |frame| match graph {
-                CompiledExpr::Explicit { lhs } => {
-                    match points(lhs, bounds.width / self.scale, self.mid, self.resolution) {
-                        Ok(points) => {
-                            for i in 0..points.len() - 1 {
-                                match (points[i], points[i + 1]) {
-                                    (Some(point), Some(next_point)) => {
-                                        let point = translate_point(
-                                            point,
-                                            self.mid,
-                                            self.scale,
-                                            bounds.size(),
-                                        );
+        let graphs = self.points.iter().map(|(id, points)| {
+            self.graph_caches[id].draw(renderer, bounds.size(), |frame| {
+                for i in 0..points.len().saturating_sub(1) {
+                    match (points[i], points[i + 1]) {
+                        (Some(point), Some(next_point)) => {
+                            let point = translate_point(point, self.mid, self.scale, bounds.size());
+                            let next_point =
+                                translate_point(next_point, self.mid, self.scale, bounds.size());
 
-                                        let next_point = translate_point(
-                                            next_point,
-                                            self.mid,
-                                            self.scale,
-                                            bounds.size(),
-                                        );
-
-                                        if point.y > frame.size().height * 2.0
-                                            || point.y < -frame.size().height
-                                            || point.y.is_nan()
-                                            || !point.y.is_finite()
-                                            || !next_point.y.is_finite()
-                                            || !next_point.y.is_finite()
-                                        {
-                                            continue;
-                                        }
-
-                                        frame.stroke(
-                                            &Path::line(point, next_point),
-                                            Stroke::default()
-                                                .with_width(3.0)
-                                                .with_color(Color::from_rgb8(45, 112, 179)),
-                                        );
-                                    }
-                                    _ => (),
-                                }
+                            if point.y.is_finite() && next_point.y.is_finite() {
+                                frame.stroke(
+                                    &Path::line(point, next_point),
+                                    Stroke::default()
+                                        .with_width(3.0)
+                                        .with_color(Color::from_rgb8(45, 112, 179)),
+                                );
                             }
                         }
-                        Err(e) => eprintln!("error in eval, {}", e),
+                        _ => (),
                     }
                 }
-                CompiledExpr::Implicit { .. } => (),
             })
         });
 
@@ -186,6 +125,7 @@ impl<'a, 'context> Program<Message> for GraphRenderer<'a, 'context> {
             ),
             Stroke::default().with_width(3.0),
         );
+
         graphs.push(grid.into_geometry());
         graphs
     }

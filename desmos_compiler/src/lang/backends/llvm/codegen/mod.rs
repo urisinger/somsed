@@ -98,6 +98,9 @@ pub fn compile_all_exprs<'ctx>(
     }
 
     for (id, expr) in &exprs.exprs {
+        if compiled_exprs.errors.get(id).is_some() {
+            continue;
+        }
         match expr {
             Expr::Implicit { op, .. } => {
                 let lhs_name = format!("implicit_{}_lhs", id.0);

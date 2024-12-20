@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, thread};
+
+use flume::{unbounded, Receiver, Sender};
 
 use components::sidebar;
 use desmos_compiler::{
@@ -7,41 +9,28 @@ use desmos_compiler::{
 };
 use graph::GraphRenderer;
 use iced::{
-    alignment::Horizontal,
-    overlay,
     widget::{
-        self,
         canvas::Cache,
-        container, mouse_area, opaque,
-        pane_grid::{self, Axis, Content, Pane, ResizeEvent},
-        row,
-        text_input::{self, focus, Id},
-        Canvas, Stack, TextInput,
+        pane_grid::{self, Axis, Content, ResizeEvent},
+        text_input::{focus, Id},
+        Canvas,
     },
-    Application, Color, Length, Padding, Settings, Task, Vector,
+    Length, Subscription, Task, Vector,
 };
+use server::{Event, PointsServerRequest};
 
 mod components;
 mod graph;
+mod server;
 
 static DCG_FONT: &[u8; 45324] = include_bytes!("./dcg-icons-2024-08-02.ttf");
 
-struct UnsafeContext(inkwell::context::Context);
-
-unsafe impl Send for UnsafeContext {}
-unsafe impl Sync for UnsafeContext {}
-
-use inkwell::context::Context;
-use once_cell::sync::Lazy;
-
-static GLOBAL_CONTEXT: Lazy<UnsafeContext> = Lazy::new(|| UnsafeContext(Context::create()));
 fn main() -> iced::Result {
-    {
-        iced::application("Somsed", Somsed::update, Somsed::view)
-            .font(DCG_FONT)
-            .antialiasing(true)
-            .run_with(move || (Somsed::new(&GLOBAL_CONTEXT.0), Task::none()))?;
-    }
+    iced::application("Somsed", Somsed::update, Somsed::view)
+        .font(DCG_FONT)
+        .antialiasing(true)
+        .subscription(Somsed::subscription)
+        .run_with(Somsed::new)?;
     Ok(())
 }
 
@@ -54,6 +43,7 @@ pub enum Message {
     ShowError(Option<ExpressionId>),
     FocusExpr(usize),
     Resized(pane_grid::ResizeEvent),
+    ServerResponse(Event),
 }
 
 enum PaneType {
@@ -61,16 +51,16 @@ enum PaneType {
     Sidebar,
 }
 
-struct Somsed<'a> {
-    context: &'a inkwell::context::Context,
+struct Somsed {
     panes: pane_grid::State<PaneType>,
     graph_caches: HashMap<ExpressionId, Cache>,
-    parsed_expressions: Expressions,
     expressions: HashMap<ExpressionId, String>,
+
+    points: HashMap<ExpressionId, Vec<Option<Vector>>>,
 
     errors: HashMap<ExpressionId, String>,
 
-    compiled_eqs: CompiledExprs<'a>,
+    equation_tx: Option<Sender<PointsServerRequest>>,
 
     shown_error: Option<ExpressionId>,
 
@@ -81,53 +71,43 @@ struct Somsed<'a> {
     resolution: u32,
 }
 
-#[derive(Debug)]
-struct Options<'a> {
-    context: &'a inkwell::context::Context,
-}
-
-impl<'a> Options<'a> {
-    pub fn new(context: &'a inkwell::context::Context) -> Self {
-        Self { context }
-    }
-}
-
-impl<'a> Somsed<'a> {
-    fn new(options: &'a inkwell::context::Context) -> Self {
+impl Somsed {
+    fn new() -> (Self, Task<Message>) {
         let graph_caches = HashMap::new();
-        let expressions = Expressions::new();
 
         let (mut panes, pane) = pane_grid::State::new(PaneType::Sidebar);
 
         panes.split(Axis::Vertical, pane, PaneType::Graph);
 
-        Self {
-            panes,
-            compiled_eqs: CompiledExprs::new(),
-            scale: 100.0,
-            mid: Vector { x: 0.0, y: 0.0 },
-            resolution: 1000,
-            context: options,
-            errors: HashMap::new(),
-            max_id: 0,
+        (
+            Self {
+                panes,
+                scale: 100.0,
+                mid: Vector { x: 0.0, y: 0.0 },
+                resolution: 1000,
+                errors: HashMap::new(),
+                max_id: 0,
+                equation_tx: None,
 
-            parsed_expressions: expressions,
-            expressions: HashMap::new(),
-            graph_caches,
+                points: HashMap::new(),
 
-            shown_error: None,
-        }
+                expressions: HashMap::new(),
+                graph_caches,
+
+                shown_error: None,
+            },
+            Task::none(),
+        )
     }
 
     fn view(&self) -> pane_grid::PaneGrid<'_, Message> {
         pane_grid::PaneGrid::new(&self.panes, move |_, id, _| match id {
             PaneType::Graph => Content::new(
                 Canvas::new(GraphRenderer::new(
-                    &self.compiled_eqs,
+                    &self.points,
                     &self.graph_caches,
                     self.scale,
                     self.mid,
-                    self.resolution,
                 ))
                 .width(Length::Fill)
                 .height(Length::Fill),
@@ -149,6 +129,10 @@ impl<'a> Somsed<'a> {
         }
     }
 
+    fn subscription(&self) -> Subscription<Message> {
+        Subscription::run(server::points_server).map(Message::ServerResponse)
+    }
+
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Moved(p) => {
@@ -156,39 +140,49 @@ impl<'a> Somsed<'a> {
                 self.clear_caches();
             }
             Message::EquationChanged(id, s) => {
-                match self.parsed_expressions.insert_expr(id, &s) {
-                    Ok(()) => {
-                        self.compiled_eqs =
-                            compile_all_exprs(self.context, &self.parsed_expressions);
+                self.expressions.insert(id, s.clone());
 
-                        self.graph_caches
-                            .entry(id)
-                            .or_insert_with(|| Cache::new())
-                            .clear();
-                    }
-                    Err(e) => {
-                        eprintln!("failed to parse eq: {e}");
-                    }
+                if s.is_empty() {
+                    return Task::none();
                 }
-                self.expressions.insert(id, s);
+                let _ = self
+                    .equation_tx
+                    .as_ref()
+                    .map(|sender| sender.send(PointsServerRequest::Compile { id, expr_source: s }));
+
+                let _ = self.equation_tx.as_ref().map(|sender| {
+                    sender.send(PointsServerRequest::Compute {
+                        id,
+                        range: self.scale,
+                        mid: self.mid,
+                        resolution: self.resolution,
+                    })
+                });
             }
             Message::EquationAdded(s) => {
                 let id = ExpressionId(self.max_id);
-                match self.parsed_expressions.insert_expr(id, &s) {
-                    Ok(()) => {
-                        self.graph_caches.insert(id, Cache::new());
-                        self.compiled_eqs =
-                            compile_all_exprs(self.context, &self.parsed_expressions);
-                        return focus(Id::new(format!("equation_{}", self.max_id)));
-                    }
-                    Err(e) => {
-                        eprintln!("failed to parse eq: {e}");
-                    }
-                };
-
-                self.expressions.insert(id, s);
-
                 self.max_id += 1;
+
+                self.expressions.insert(id, s.clone());
+                self.graph_caches.insert(id, Cache::new());
+                if s.is_empty() {
+                    return focus(Id::new(format!("equation_{}", id.0)));
+                }
+                let _ = self
+                    .equation_tx
+                    .as_ref()
+                    .expect("sender not recived")
+                    .send(PointsServerRequest::Compile { id, expr_source: s });
+
+                let _ = self.equation_tx.as_ref().expect("sender not recived").send(
+                    PointsServerRequest::Compute {
+                        id,
+                        range: self.scale,
+                        mid: self.mid,
+                        resolution: self.resolution,
+                    },
+                );
+                return focus(Id::new(format!("equation_{}", id.0)));
             }
             Message::Scaled(scale, mid) => {
                 self.scale = scale;
@@ -196,6 +190,19 @@ impl<'a> Somsed<'a> {
                     self.mid = mid;
                 }
                 self.clear_caches();
+
+                for id in self.expressions.keys() {
+                    let _ = self
+                        .equation_tx
+                        .as_ref()
+                        .expect("sender not received")
+                        .send(PointsServerRequest::Compute {
+                            id: *id,
+                            range: self.scale,
+                            mid: self.mid,
+                            resolution: self.resolution,
+                        });
+                }
             }
             Message::ShowError(i) => {
                 self.shown_error = i;
@@ -204,7 +211,24 @@ impl<'a> Somsed<'a> {
             Message::Resized(ResizeEvent { split, ratio }) => {
                 self.panes.resize(split, ratio);
             }
+            Message::ServerResponse(response) => {
+                match response {
+                    Event::Computed { id, points } => {
+                        self.points.insert(id, points);
+                        self.graph_caches.get(&id).map(Cache::clear);
+                        self.errors.remove(&id);
+                    }
+                    Event::Error { id, message } => {
+                        self.errors.insert(id, message);
+                    }
+                    Event::Sender(sender) => {
+                        self.equation_tx = Some(sender);
+                    }
+                };
+                return Task::none();
+            }
         };
+
         Task::none()
     }
 }
