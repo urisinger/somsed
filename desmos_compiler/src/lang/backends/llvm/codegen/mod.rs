@@ -98,7 +98,7 @@ pub fn compile_all_exprs<'ctx>(
     }
 
     for (id, expr) in &exprs.exprs {
-        if compiled_exprs.errors.get(id).is_some() {
+        if compiled_exprs.errors.contains_key(id) {
             continue;
         }
         match expr {

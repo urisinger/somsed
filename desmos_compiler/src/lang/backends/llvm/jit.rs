@@ -32,7 +32,7 @@ pub enum ImplicitJitFn<'ctx> {
 }
 
 impl<'ctx> ExplicitJitFn<'ctx> {
-    pub unsafe fn from_function(
+    pub(crate) unsafe fn from_function(
         function_name: &str,
         execution_engine: &ExecutionEngine<'ctx>,
         return_type: ValueType,
@@ -60,7 +60,7 @@ impl<'ctx> ExplicitJitFn<'ctx> {
 }
 
 impl<'ctx> ImplicitJitFn<'ctx> {
-    pub unsafe fn from_function(
+    pub(crate) unsafe fn from_function(
         function_name: &str,
         execution_engine: &ExecutionEngine<'ctx>,
         return_type: ValueType,

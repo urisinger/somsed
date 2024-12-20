@@ -13,19 +13,12 @@ impl From<u32> for ExpressionId {
 }
 
 #[derive(Debug)]
+#[derive(Default)]
 pub struct Expressions {
     pub exprs: HashMap<ExpressionId, Expr>,
     idents: HashMap<String, ExpressionId>,
 }
 
-impl Default for Expressions {
-    fn default() -> Self {
-        Self {
-            exprs: Default::default(),
-            idents: Default::default(),
-        }
-    }
-}
 
 impl Expressions {
     pub fn new() -> Self {

@@ -5,7 +5,7 @@ use crate::lang::backends::llvm::value::{List, Value};
 
 use super::CodeGen;
 
-impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
+impl<'ctx> CodeGen<'ctx, '_> {
     pub fn codegen_allocate(&self, size: IntValue<'ctx>) -> Result<PointerValue<'ctx>> {
         // Assuming you're using LLVM's `malloc` to allocate memory
         let i64_type = self.context.i64_type();

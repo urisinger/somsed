@@ -11,7 +11,7 @@ use crate::lang::{
 
 use super::CodeGen;
 
-impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
+impl<'ctx> CodeGen<'ctx, '_> {
     pub fn return_type(&self, expr: &Node, call_types: &[ValueType]) -> Result<ValueType> {
         Ok(match expr {
             Node::Lit(Literal::Float(_)) => ValueType::Number,

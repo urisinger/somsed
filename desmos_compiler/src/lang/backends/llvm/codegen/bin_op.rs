@@ -8,7 +8,7 @@ use crate::lang::{backends::llvm::value::Value, parser::BinaryOp};
 
 use super::CodeGen;
 
-impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
+impl<'ctx> CodeGen<'ctx, '_> {
     pub fn codegen_binary_op(
         &self,
         lhs: Value<'ctx>,
