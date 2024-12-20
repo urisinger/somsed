@@ -1,12 +1,9 @@
-use std::{collections::HashMap, thread};
+use std::collections::HashMap;
 
-use flume::{unbounded, Receiver, Sender};
+use flume::Sender;
 
 use components::sidebar;
-use desmos_compiler::{
-    expressions::{ExpressionId, Expressions},
-    lang::backends::llvm::{codegen::compile_all_exprs, CompiledExprs},
-};
+use desmos_compiler::expressions::{ExpressionId, Expressions};
 use graph::GraphRenderer;
 use iced::{
     widget::{
@@ -124,7 +121,7 @@ impl Somsed {
     }
 
     pub fn clear_caches(&mut self) {
-        for (_, v) in &mut self.graph_caches {
+        for v in self.graph_caches.values_mut() {
             v.clear();
         }
     }

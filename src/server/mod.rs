@@ -5,7 +5,6 @@ use desmos_compiler::lang::backends::llvm::CompiledExpr;
 use desmos_compiler::lang::backends::llvm::{codegen::compile_all_exprs, CompiledExprs};
 
 use flume::r#async::RecvStream;
-use flume::Sender;
 use std::thread;
 
 // Define the server requests
@@ -45,16 +44,11 @@ pub fn points_server() -> RecvStream<'static, Event> {
         let mut expressions = Expressions::new();
         let mut compiled_exprs = CompiledExprs::new();
         event_tx.send(Event::Sender(equation_tx)).unwrap();
-        loop {
-            let request = if let Ok(request) = equation_rx.recv() {
-                request
-            } else {
-                break;
-            };
+        while let Ok(request) = equation_rx.recv() {
             match request {
                 PointsServerRequest::Compile { id, expr_source } => {
                     if let Err(e) = expressions.insert_expr(id, &expr_source) {
-                        let _ = event_tx
+                        event_tx
                             .send(Event::Error {
                                 id,
                                 message: format!("Failed to parse expression: {}", e),
@@ -66,7 +60,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
                     compiled_exprs = compile_all_exprs(&context, &expressions);
 
                     for (&id, e) in &compiled_exprs.errors {
-                        let _ = event_tx
+                        event_tx
                             .send(Event::Error {
                                 id,
                                 message: format!("Failed to parse expression: {}", e),
@@ -83,7 +77,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
                     let compiled = compiled_exprs.compiled.get(&id);
                     let points_result = match compiled {
                         Some(CompiledExpr::Explicit { lhs }) => {
-                            points(&lhs, range, mid, resolution)
+                            points(lhs, range, mid, resolution)
                         }
                         Some(_) => Err(anyhow!("Only explicit expressions are supported")),
                         None => Err(anyhow!("Failed to retrieve compiled expression")),
@@ -91,10 +85,10 @@ pub fn points_server() -> RecvStream<'static, Event> {
 
                     match points_result {
                         Ok(points) => {
-                            let _ = event_tx.send(Event::Computed { id, points }).unwrap();
+                            event_tx.send(Event::Computed { id, points }).unwrap();
                         }
                         Err(e) => {
-                            let _ = event_tx
+                            event_tx
                                 .send(Event::Error {
                                     id,
                                     message: format!("Error during computation: {}", e),
@@ -110,9 +104,8 @@ pub fn points_server() -> RecvStream<'static, Event> {
     event_rx.into_stream()
 }
 
-// The function that computes points given an AST
 pub fn points(
-    ast: &ExplicitJitFn,
+    function: &ExplicitJitFn,
     range: f32,
     mid: Vector,
     resolution: u32,
@@ -126,7 +119,7 @@ pub fn points(
         let x = i as f64 * dx as f64 + min as f64;
 
         let y = unsafe {
-            match ast {
+            match function {
                 ExplicitJitFn::Number(jit_func) => jit_func.call(x),
                 ExplicitJitFn::List(_) => {
                     return Err(anyhow!("expected a numeric return value, got list type"))

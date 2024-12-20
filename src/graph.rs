@@ -1,11 +1,7 @@
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
 
-use desmos_compiler::{
-    expressions::ExpressionId,
-    lang::backends::llvm::{jit::ExplicitJitFn, CompiledExpr, CompiledExprs},
-};
+use desmos_compiler::expressions::ExpressionId;
 use iced::{
     event::Status,
     mouse::{self, Cursor},
@@ -61,7 +57,7 @@ pub fn translate_coord(point: f32, mid: f32, scale: f32, size: f32) -> f32 {
     (point - mid) * scale + size / 2.0
 }
 
-impl<'a> Program<Message> for GraphRenderer<'a> {
+impl Program<Message> for GraphRenderer<'_> {
     type State = GraphState;
     fn draw(
         &self,
@@ -74,22 +70,19 @@ impl<'a> Program<Message> for GraphRenderer<'a> {
         let graphs = self.points.iter().map(|(id, points)| {
             self.graph_caches[id].draw(renderer, bounds.size(), |frame| {
                 for i in 0..points.len().saturating_sub(1) {
-                    match (points[i], points[i + 1]) {
-                        (Some(point), Some(next_point)) => {
-                            let point = translate_point(point, self.mid, self.scale, bounds.size());
-                            let next_point =
-                                translate_point(next_point, self.mid, self.scale, bounds.size());
+                    if let (Some(point), Some(next_point)) = (points[i], points[i + 1]) {
+                        let point = translate_point(point, self.mid, self.scale, bounds.size());
+                        let next_point =
+                            translate_point(next_point, self.mid, self.scale, bounds.size());
 
-                            if point.y.is_finite() && next_point.y.is_finite() {
-                                frame.stroke(
-                                    &Path::line(point, next_point),
-                                    Stroke::default()
-                                        .with_width(3.0)
-                                        .with_color(Color::from_rgb8(45, 112, 179)),
-                                );
-                            }
+                        if point.y.is_finite() && next_point.y.is_finite() {
+                            frame.stroke(
+                                &Path::line(point, next_point),
+                                Stroke::default()
+                                    .with_width(3.0)
+                                    .with_color(Color::from_rgb8(45, 112, 179)),
+                            );
                         }
-                        _ => (),
                     }
                 }
             })
@@ -143,13 +136,10 @@ impl<'a> Program<Message> for GraphRenderer<'a> {
         match event {
             Event::Mouse(event) => match event {
                 mouse::Event::ButtonPressed(mouse::Button::Left) => {
-                    match *state {
-                        GraphState::None => {
-                            *state = GraphState::Moving {
-                                start: cursor_position,
-                            };
-                        }
-                        _ => {}
+                    if let GraphState::None = *state {
+                        *state = GraphState::Moving {
+                            start: cursor_position,
+                        };
                     }
                     (event::Status::Captured, None)
                 }
