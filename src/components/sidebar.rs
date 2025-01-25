@@ -4,8 +4,8 @@ use desmos_compiler::expressions::ExpressionId;
 use iced::{
     alignment, mouse,
     widget::{
-        column, container, mouse_area, row, scrollable, text, text::LineHeight,
-        text_input::Id, tooltip, TextInput,
+        column, container, mouse_area, row, scrollable, text, text::LineHeight, text_input::Id,
+        tooltip, TextInput,
     },
     Color, Element, Length, Padding,
 };

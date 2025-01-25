@@ -23,6 +23,7 @@ mod bin_op;
 mod expr;
 mod functions;
 mod list;
+mod unary_op;
 
 pub fn compile_all_exprs<'ctx>(
     context: &'ctx inkwell::context::Context,

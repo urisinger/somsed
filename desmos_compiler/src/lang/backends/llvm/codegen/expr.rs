@@ -6,7 +6,7 @@ use crate::lang::{
         types::{ListType, ValueType},
         value::{List, Value},
     },
-    parser::{BinaryOp, Expr, Literal, Node, UnaryOp},
+    parser::{BinaryOp, Expr, Literal, Node},
 };
 
 use super::CodeGen;
@@ -17,9 +17,6 @@ impl<'ctx> CodeGen<'ctx, '_> {
             Node::Lit(Literal::Float(_)) => ValueType::Number,
             Node::Lit(Literal::List(_)) => ValueType::List(ListType::Number),
             Node::Ident(ident) => {
-                // Handling identifiers is more complex and often involves looking up values in a symbol table.
-                // Here we assume you have some mechanism to resolve identifiers to LLVM values.
-                //
                 match self
                     .exprs
                     .get_expr(ident)
@@ -30,13 +27,10 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 }
             }
             Node::BinOp { .. } => ValueType::Number,
-            Node::UnaryOp { val, op } => {
+            Node::UnaryOp { val, .. } => {
                 let val_value = self.return_type(val, call_types)?;
 
-                match op {
-                    UnaryOp::Neg => val_value,
-                    _ => unimplemented!(),
-                }
+                val_value
             }
             Node::FnCall { ident, args } => match self.exprs.get_expr(ident) {
                 Some(Expr::FnDef { rhs, .. }) => {
@@ -118,27 +112,15 @@ impl<'ctx> CodeGen<'ctx, '_> {
 
                 Value::List(List::Number(list_value))
             }
-
-            Node::Ident(ident) => {
-                // Handling identifiers is more complex and often involves looking up values in a symbol table.
-                // Here we assume you have some mechanism to resolve identifiers to LLVM values.
-                self.get_var(ident)?
-            }
+            Node::Ident(ident) => self.get_var(ident)?,
             Node::BinOp { lhs, op, rhs } => {
                 let lhs = self.codegen_expr(lhs, call_args)?;
                 let rhs = self.codegen_expr(rhs, call_args)?;
                 self.codegen_binary_op(lhs, *op, rhs)?
             }
             Node::UnaryOp { val, op } => {
-                let val_value = self.codegen_expr(val, call_args)?;
-
-                match op {
-                    UnaryOp::Neg => match val_value {
-                        Value::Number(v) => self.builder.build_float_neg(v, "neg")?.into(),
-                        _ => unimplemented!(),
-                    },
-                    _ => unimplemented!(),
-                }
+                let lhs = self.codegen_expr(val, call_args)?;
+                self.codegen_unary_op(lhs, *op)?
             }
             Node::FnCall { ident, args } => match self.exprs.get_expr(ident) {
                 Some(Expr::FnDef { .. }) => {

@@ -8,7 +8,7 @@ use graph::GraphRenderer;
 use iced::{
     widget::{
         canvas::Cache,
-        pane_grid::{self, Axis, Content, ResizeEvent},
+        pane_grid::{self, Axis, Content, Region, ResizeEvent},
         text_input::{focus, Id},
         Canvas,
     },
@@ -53,7 +53,7 @@ struct Somsed {
     graph_caches: HashMap<ExpressionId, Cache>,
     expressions: HashMap<ExpressionId, String>,
 
-    points: HashMap<ExpressionId, Vec<Option<Vector>>>,
+    points: HashMap<ExpressionId, Vec<Vector>>,
 
     errors: HashMap<ExpressionId, String>,
 
@@ -63,7 +63,7 @@ struct Somsed {
 
     pub max_id: u32,
 
-    scale: f32,
+    range: f32,
     mid: Vector,
     resolution: u32,
 }
@@ -72,16 +72,19 @@ impl Somsed {
     fn new() -> (Self, Task<Message>) {
         let graph_caches = HashMap::new();
 
-        let (mut panes, pane) = pane_grid::State::new(PaneType::Sidebar);
-
-        panes.split(Axis::Vertical, pane, PaneType::Graph);
+        let panes = pane_grid::State::with_configuration(pane_grid::Configuration::Split {
+            axis: pane_grid::Axis::Vertical,
+            ratio: 0.2,
+            a: Box::new(pane_grid::Configuration::Pane(PaneType::Sidebar)),
+            b: Box::new(pane_grid::Configuration::Pane(PaneType::Graph)),
+        });
 
         (
             Self {
                 panes,
-                scale: 100.0,
+                range: 10.0,
                 mid: Vector { x: 0.0, y: 0.0 },
-                resolution: 1000,
+                resolution: 100,
                 errors: HashMap::new(),
                 max_id: 0,
                 equation_tx: None,
@@ -103,10 +106,10 @@ impl Somsed {
                 Canvas::new(GraphRenderer::new(
                     &self.points,
                     &self.graph_caches,
-                    self.scale,
+                    self.range,
                     self.mid,
                 ))
-                .width(Length::Fill)
+                .width(Length::FillPortion(3))
                 .height(Length::Fill),
             ),
             PaneType::Sidebar => pane_grid::Content::new(sidebar::view(
@@ -135,6 +138,18 @@ impl Somsed {
             Message::Moved(p) => {
                 self.mid = self.mid + p;
                 self.clear_caches();
+                for id in self.expressions.keys() {
+                    let _ = self
+                        .equation_tx
+                        .as_ref()
+                        .expect("sender not received")
+                        .send(PointsServerRequest::Compute {
+                            id: *id,
+                            range: self.range,
+                            mid: self.mid,
+                            resolution: self.resolution,
+                        });
+                }
             }
             Message::EquationChanged(id, s) => {
                 self.expressions.insert(id, s.clone());
@@ -150,7 +165,7 @@ impl Somsed {
                 let _ = self.equation_tx.as_ref().map(|sender| {
                     sender.send(PointsServerRequest::Compute {
                         id,
-                        range: self.scale,
+                        range: self.range,
                         mid: self.mid,
                         resolution: self.resolution,
                     })
@@ -174,15 +189,15 @@ impl Somsed {
                 let _ = self.equation_tx.as_ref().expect("sender not recived").send(
                     PointsServerRequest::Compute {
                         id,
-                        range: self.scale,
+                        range: self.range,
                         mid: self.mid,
                         resolution: self.resolution,
                     },
                 );
                 return focus(Id::new(format!("equation_{}", id.0)));
             }
-            Message::Scaled(scale, mid) => {
-                self.scale = scale;
+            Message::Scaled(new_range, mid) => {
+                self.range = new_range;
                 if let Some(mid) = mid {
                     self.mid = mid;
                 }
@@ -195,7 +210,7 @@ impl Somsed {
                         .expect("sender not received")
                         .send(PointsServerRequest::Compute {
                             id: *id,
-                            range: self.scale,
+                            range: self.range,
                             mid: self.mid,
                             resolution: self.resolution,
                         });
