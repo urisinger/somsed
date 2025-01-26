@@ -132,113 +132,85 @@ pub fn points(
 ) -> Result<Vec<Vector>> {
     let mut points = Vec::new();
 
-    let x_min = (mid.x - range / 2.0) as f64;
+    let min_x = (mid.x - range / 2.0) as f32;
 
-    let y_min = match unsafe { function.call(x_min) } {
-        JitValue::Number(num) => num,
-        JitValue::List(_) => return Err(anyhow!("expected a numeric return value, got list type")),
-    };
+    let min = Vector::new(
+        min_x,
+        match unsafe { function.call(min_x as f64) } {
+            JitValue::Number(num) => num as f32,
+            JitValue::List(_) => {
+                return Err(anyhow!("expected a numeric return value, got list type"))
+            }
+        },
+    );
 
-    let x_max = x_min + range as f64;
-    let y_max = match unsafe { function.call(x_max) } {
-        JitValue::Number(num) => num,
-        JitValue::List(_) => return Err(anyhow!("expected a numeric return value, got list type")),
-    };
+    let max_x = min_x + range;
+    let max = Vector::new(
+        max_x,
+        match unsafe { function.call(max_x as f64) } {
+            JitValue::Number(num) => num as f32,
+            JitValue::List(_) => {
+                return Err(anyhow!("expected a numeric return value, got list type"))
+            }
+        },
+    );
 
-    points.push(Vector {
-        x: x_min as f32,
-        y: y_min as f32,
-    });
+    points.push(min);
 
-    subdivide(
-        function,
-        x_min,
-        y_min,
-        x_max,
-        y_max,
-        0,
-        min_depth,
-        max_depth,
-        &mut points,
-    )?;
+    subdivide(function, min, max, 0, min_depth, max_depth, &mut points)?;
 
-    points.push(Vector {
-        x: x_max as f32,
-        y: y_max as f32,
-    });
+    points.push(max);
 
     Ok(points)
 }
 
 fn subdivide(
     function: &ExplicitJitFn,
-    x_min: f64,
-    y_min: f64,
-    x_max: f64,
-    y_max: f64,
+    min: Vector,
+    max: Vector,
     depth: u32,
     min_depth: u32,
     max_depth: u32,
     points: &mut Vec<Vector>,
 ) -> Result<()> {
-    let x_mid = (x_min + x_max) / 2.0;
+    let x_mid = (min.x + max.x) / 2.0;
 
-    let y_mid = match unsafe { function.call(x_mid) } {
-        JitValue::Number(num) => num,
-        JitValue::List(_) => return Err(anyhow!("expected a numeric return value, got list type")),
-    };
+    let mid = Vector::new(
+        x_mid,
+        match unsafe { function.call(x_mid as f64) } {
+            JitValue::Number(num) => num as f32,
+            JitValue::List(_) => {
+                return Err(anyhow!("expected a numeric return value, got list type"))
+            }
+        },
+    );
 
     // Check if subdivision is necessary
-    if depth <= max_depth
-        && (depth < min_depth || should_descend(x_min, x_max, y_min, y_mid, y_max))
-    {
-        subdivide(
-            function,
-            x_min,
-            y_min,
-            x_mid,
-            y_mid,
-            depth + 1,
-            min_depth,
-            max_depth,
-            points,
-        )?;
-        subdivide(
-            function,
-            x_mid,
-            y_mid,
-            x_max,
-            y_max,
-            depth + 1,
-            min_depth,
-            max_depth,
-            points,
-        )?;
+    if depth <= max_depth && (depth < min_depth || should_descend(min, mid, max)) {
+        subdivide(function, min, mid, depth + 1, min_depth, max_depth, points)?;
+        subdivide(function, mid, max, depth + 1, min_depth, max_depth, points)?;
     } else {
-        points.push(Vector {
-            x: x_mid as f32,
-            y: y_mid as f32,
-        });
+        points.push(mid);
     }
 
     Ok(())
 }
 
-fn should_descend(x_min: f64, x_max: f64, y_min: f64, y_mid: f64, y_max: f64) -> bool {
-    if y_min.is_nan() && y_mid.is_nan() && y_max.is_nan() {
+fn should_descend(min: Vector, mid: Vector, max: Vector) -> bool {
+    if min.y.is_nan() && mid.y.is_nan() && max.y.is_nan() {
         // Entirely in an undefined region
         return false;
     }
 
-    if y_min.is_nan() || y_mid.is_nan() || y_max.is_nan() {
+    if min.y.is_nan() || mid.y.is_nan() || max.y.is_nan() {
         // Straddling defined and undefined regions
         return true;
     }
 
     // Calculate gradients for left and right intervals
-    let x_step = (x_max - x_min) / 2.0; // Half the interval for gradient calculation
-    let grad_left = ((y_mid - y_min) / x_step).abs();
-    let grad_right = ((y_max - y_mid) / x_step).abs();
+    let x_step = (max.x - min.x) / 2.0; // Half the interval for gradient calculation
+    let grad_left = ((mid.y - min.y) / x_step).abs();
+    let grad_right = ((max.y - mid.y) / x_step).abs();
 
     if grad_left > 5.0
         || grad_right > 5.0
@@ -252,8 +224,8 @@ fn should_descend(x_min: f64, x_max: f64, y_min: f64, y_mid: f64, y_max: f64) ->
     }
 
     // Check for relative differences (peaks/troughs)
-    let relative_change_left = ((y_mid - y_min) / y_min.abs().max(1e-10)).abs();
-    let relative_change_right = ((y_max - y_mid) / y_mid.abs().max(1e-10)).abs();
+    let relative_change_left = ((mid.y - min.y) / min.y.abs().max(1e-10)).abs();
+    let relative_change_right = ((max.y - mid.y) / mid.y.abs().max(1e-10)).abs();
 
     if relative_change_left > 0.1
         || relative_change_right > 0.1

@@ -8,7 +8,7 @@ use graph::GraphRenderer;
 use iced::{
     widget::{
         canvas::Cache,
-        pane_grid::{self, Axis, Content, Region, ResizeEvent},
+        pane_grid::{self, Content, ResizeEvent},
         text_input::{focus, Id},
         Canvas,
     },
