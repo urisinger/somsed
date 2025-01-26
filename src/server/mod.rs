@@ -98,7 +98,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
             {
                 let compiled = compiled_exprs.compiled.get(&id);
                 let points_result = match compiled {
-                    Some(CompiledExpr::Explicit { lhs }) => points(lhs, range, mid, 9, 13),
+                    Some(CompiledExpr::Explicit { lhs }) => points(lhs, range, mid, 9, 14),
                     Some(_) => Err(anyhow!("Only explicit expressions are supported")),
                     None => Err(anyhow!("Failed to retrieve compiled expression")),
                 };

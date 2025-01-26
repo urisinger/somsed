@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Div};
 
 use desmos_compiler::expressions::ExpressionId;
 use iced::{
     event::Status,
     mouse::{self, Cursor},
-    widget::canvas::{event, Cache, Event, Frame, Geometry, Path, Program, Stroke},
+    widget::canvas::{event, Cache, Event, Frame, Geometry, Path, Program, Stroke, Text},
     Color, Point, Size, Theme, Vector,
 };
 
@@ -45,10 +45,10 @@ impl Default for GraphState {
     }
 }
 
-pub fn translate_point(point: Vector, mid: Vector, range: f32, size: Size) -> Point {
+pub fn translate_point(point: Vector, mid: Vector, range: Vector, size: Size) -> Point {
     Point {
-        x: translate_coord(point.x, mid.x, range, size.width),
-        y: translate_coord(point.y, mid.y, -range, size.height),
+        x: translate_coord(point.x, mid.x, range.x, size.width),
+        y: translate_coord(point.y, mid.y, -range.y, size.height),
     }
 }
 
@@ -58,6 +58,7 @@ pub fn translate_coord(point: f32, mid: f32, range: f32, size: f32) -> f32 {
 
 impl Program<Message> for GraphRenderer<'_> {
     type State = GraphState;
+
     fn draw(
         &self,
         _: &Self::State,
@@ -66,11 +67,13 @@ impl Program<Message> for GraphRenderer<'_> {
         bounds: iced::Rectangle,
         _: Cursor,
     ) -> Vec<Geometry> {
+        let range = Vector::new(self.range, self.range * bounds.height / bounds.width);
+        // 1) Draw your graphs as before
         let graphs = self.points.iter().map(|(id, points)| {
             self.graph_caches[id].draw(renderer, bounds.size(), |frame| {
                 let path = Path::new(|builder| {
                     for point in points {
-                        let point = translate_point(*point, self.mid, self.range, bounds.size());
+                        let point = translate_point(*point, self.mid, range, bounds.size());
 
                         if !point.x.is_finite() || !point.y.is_finite() {
                             continue;
@@ -87,22 +90,52 @@ impl Program<Message> for GraphRenderer<'_> {
             })
         });
 
-        let mut graphs: Vec<_> = graphs.collect();
+        let mut geometries: Vec<_> = graphs.collect();
 
-        // Create the grid and axis lines
+        // 2) Create a `Frame` to draw the grid and axes
         let mut grid = Frame::new(renderer, bounds.size());
 
-        // Draw x-axis
-        let x_axis_y = translate_coord(0.0, self.mid.y, -self.range, bounds.size().height);
-        grid.stroke(
-            &Path::line(
-                Point::new(0.0, x_axis_y),
-                Point::new(bounds.size().width, x_axis_y),
-            ),
-            Stroke::default().with_width(3.0),
+        let pow_10 = 10.0f32.powf(range.y.div(2.0).log10().floor());
+        let step_size = if 5.0 * pow_10 <= range.y / 2.0 {
+            5.0 * pow_10
+        } else if 2.0 * pow_10 <= range.y / 2.0 {
+            2.0 * pow_10
+        } else {
+            pow_10
+        };
+        println!("{step_size}");
+
+        draw_grid(
+            &mut grid,
+            self.mid,
+            step_size,
+            range,
+            bounds.size(),
+            Stroke::default()
+                .with_width(1.5)
+                .with_color(Color::from_rgba8(100, 100, 100, 0.9)),
         );
 
-        // Draw y-axis
+        draw_grid(
+            &mut grid,
+            self.mid,
+            step_size / 5.0,
+            range,
+            bounds.size(),
+            Stroke::default()
+                .with_width(1.0)
+                .with_color(Color::from_rgba8(200, 200, 200, 0.7)),
+        );
+
+        draw_axis_with_labels(
+            &mut grid,
+            self.mid,
+            range,
+            bounds.size(),
+            Color::BLACK,
+            step_size,
+        );
+
         let y_axis_x = translate_coord(0.0, self.mid.x, self.range, bounds.size().width);
         grid.stroke(
             &Path::line(
@@ -112,8 +145,8 @@ impl Program<Message> for GraphRenderer<'_> {
             Stroke::default().with_width(3.0),
         );
 
-        graphs.push(grid.into_geometry());
-        graphs
+        geometries.push(grid.into_geometry());
+        geometries
     }
 
     fn update(
@@ -187,5 +220,156 @@ impl Program<Message> for GraphRenderer<'_> {
             },
             _ => (event::Status::Ignored, None),
         }
+    }
+}
+
+fn draw_grid(
+    grid: &mut Frame,
+    mid: Vector,
+    step_size: f32,
+    range: Vector,
+    size: Size,
+    stroke: Stroke,
+) {
+    let x_min = mid.x - range.x / 2.0;
+    let x_max = mid.x + range.x / 2.0;
+
+    let start_i = (x_min / step_size).floor() as i32;
+    let end_i = (x_max / step_size).ceil() as i32;
+
+    for i in start_i..=end_i {
+        let x_world = i as f32 * step_size;
+        let x_screen = translate_coord(x_world, mid.x, range.x, size.width);
+
+        grid.stroke(
+            &Path::line(Point::new(x_screen, 0.0), Point::new(x_screen, size.height)),
+            stroke,
+        );
+    }
+
+    let y_min = mid.y - range.y / 2.0;
+    let y_max = mid.y + range.y / 2.0;
+
+    let start_j = (y_min / step_size).floor() as i32;
+    let end_j = (y_max / step_size).ceil() as i32;
+
+    for j in start_j..=end_j {
+        let y_world = j as f32 * step_size;
+        let y_screen = translate_coord(y_world, mid.y, -range.y, size.height);
+
+        grid.stroke(
+            &Path::line(Point::new(0.0, y_screen), Point::new(size.width, y_screen)),
+            stroke,
+        );
+    }
+}
+
+pub fn draw_axis_with_labels(
+    frame: &mut Frame,
+    mid: Vector,
+    range: Vector,
+    size: Size,
+    color: Color,
+    step_size: f32,
+) {
+    // Translate world y=0 to a screen coordinate for the horizontal axis
+    let axis_screen_pos = translate_coord(0.0, mid.y, -range.y, size.height);
+
+    // Draw the axis line
+    frame.stroke(
+        &Path::line(
+            Point::new(0.0, axis_screen_pos),
+            Point::new(size.width, axis_screen_pos),
+        ),
+        Stroke::default().with_width(3.0).with_color(color),
+    );
+
+    // Determine the visible world-space range in the x-direction
+    let min = mid.x - (range.x / 2.0);
+    let max = mid.x + (range.x / 2.0);
+
+    // Compute the tick range in terms of multiples of `step_size`
+    let start_i = (min / step_size).floor() as i32;
+    let end_i = (max / step_size).ceil() as i32;
+
+    // For each tick, draw the tick mark and label
+    for i in start_i..=end_i {
+        let world_coord = i as f32 * step_size;
+
+        // Convert the world-space coordinate to screen-space
+        let screen_coord = translate_coord(world_coord, mid.x, range.x, size.width);
+
+        // Draw the tick mark
+        let tick_height = 5.0;
+        frame.stroke(
+            &Path::line(
+                Point::new(screen_coord, axis_screen_pos - tick_height),
+                Point::new(screen_coord, axis_screen_pos + tick_height),
+            ),
+            Stroke::default().with_width(2.0).with_color(color),
+        );
+
+        // Measure text dimensions to calculate the background box size
+        let text_size = 14.0;
+        let padding = 4.0; // Extra padding around the text
+        let text_height = text_size + padding;
+
+        // Draw the label
+        let mut label = Text::from(format!("{}", world_coord));
+        label.color = color;
+        label.size = text_size.into();
+        label.position = Point::new(screen_coord, axis_screen_pos + 10.0 + text_height / 2.0);
+
+        frame.fill_text(label);
+    }
+
+    // Translate world x=0 to a screen coordinate for the vertical axis
+    let axis_screen_pos = translate_coord(0.0, mid.x, range.x, size.width);
+
+    // Draw the axis line
+    frame.stroke(
+        &Path::line(
+            Point::new(axis_screen_pos, 0.0),
+            Point::new(axis_screen_pos, size.height),
+        ),
+        Stroke::default().with_width(3.0).with_color(color),
+    );
+
+    // Determine the visible world-space range in the y-direction
+    let min = mid.y - (range.y / 2.0);
+    let max = mid.y + (range.y / 2.0);
+
+    // Compute the tick range in terms of multiples of `step_size`
+    let start_i = (min / step_size).floor() as i32;
+    let end_i = (max / step_size).ceil() as i32;
+
+    // For each tick, draw the tick mark and label
+    for i in start_i..=end_i {
+        let world_coord = i as f32 * step_size;
+
+        // Convert the world-space coordinate to screen-space
+        let screen_coord = translate_coord(world_coord, mid.y, -range.y, size.height);
+
+        // Draw the tick mark
+        let tick_width = 5.0;
+        frame.stroke(
+            &Path::line(
+                Point::new(axis_screen_pos - tick_width, screen_coord),
+                Point::new(axis_screen_pos + tick_width, screen_coord),
+            ),
+            Stroke::default().with_width(2.0).with_color(color),
+        );
+
+        // Measure text dimensions to calculate the background box size
+        let text_size = 14.0;
+        let text_width = (format!("{}", world_coord).len() as f32) * (text_size * 0.6); // Approximate width
+
+        // Draw the label
+        let mut label = Text::from(format!("{}", world_coord));
+        label.color = color;
+        label.size = text_size.into();
+        label.position = Point::new(axis_screen_pos + 10.0 + text_width / 2.0, screen_coord);
+
+        frame.fill_text(label);
     }
 }
