@@ -29,7 +29,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
         op: UnaryOp,
     ) -> Result<FloatValue<'ctx>> {
         Ok(match op {
-            UnaryOp::Neg => self.builder.build_float_neg(lhs, "neg")?.into(),
+            UnaryOp::Neg => self.builder.build_float_neg(lhs, "neg")?,
             UnaryOp::Sqrt => {
                 let intrinsic = Intrinsic::find("llvm.sqrt").unwrap();
                 self.builder

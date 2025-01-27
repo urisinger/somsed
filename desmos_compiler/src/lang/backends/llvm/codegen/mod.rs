@@ -247,13 +247,13 @@ pub struct FnContext<'ctx, 'a> {
     y_index: Option<u32>,
 }
 
-impl<'ctx, 'a> FnContext<'ctx, 'a> {
+impl<'ctx> FnContext<'ctx, '_> {
     pub fn get_x(&self) -> Option<&CompilerValue<'ctx>> {
-        self.x_index.map(|i| self.args.get(i as usize)).flatten()
+        self.x_index.and_then(|i| self.args.get(i as usize))
     }
 
     pub fn get_y(&self) -> Option<&CompilerValue<'ctx>> {
-        self.y_index.map(|i| self.args.get(i as usize)).flatten()
+        self.y_index.and_then(|i| self.args.get(i as usize))
     }
 }
 
@@ -443,7 +443,7 @@ impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
     ) -> Result<FunctionValue<'ctx>> {
         let types: Vec<_> = args.iter().map(|t| t.metadata()).collect();
 
-        let ret_type = self.return_type(node, args)?.clone();
+        let ret_type = self.return_type(node, args)?;
 
         self.return_types.insert(name.to_owned(), ret_type);
 

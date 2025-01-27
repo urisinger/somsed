@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use lazy_static::lazy_static;
 use pest::iterators::Pairs;
 

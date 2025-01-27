@@ -1,7 +1,4 @@
-use super::backends::llvm::{
-    codegen::functions::free,
-    jit::{JitListValue, JitValue, PointLayout},
-};
+use super::backends::llvm::jit::{JitListValue, JitValue, PointLayout};
 use anyhow::{bail, Error};
 
 #[derive(Debug, Clone, PartialEq)]

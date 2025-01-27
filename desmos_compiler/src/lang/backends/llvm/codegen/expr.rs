@@ -1,7 +1,4 @@
-use std::ops::Deref;
-
 use anyhow::{bail, Context, Result};
-use inkwell::values::BasicMetadataValueEnum;
 
 use crate::lang::{
     backends::llvm::{
@@ -34,11 +31,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 }
             }
             Node::BinOp { .. } => CompilerType::Number(self.float_type),
-            Node::UnaryOp { val, .. } => {
-                let val_value = self.return_type(val, call_types)?;
-
-                val_value
-            }
+            Node::UnaryOp { val, .. } => self.return_type(val, call_types)?,
             Node::FnCall { ident, args } => match self.exprs.get_expr(ident) {
                 Some(Expr::FnDef { rhs, .. }) => {
                     let call_types = args
@@ -153,7 +146,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 self.codegen_unary_op(lhs, *op)?
             }
             Node::FnCall { ident, args } => match self.exprs.get_expr(ident) {
-                Some(Expr::FnDef { args: fn_args, .. }) => {
+                Some(Expr::FnDef { .. }) => {
                     let args = args
                         .iter()
                         .map(|arg| {
