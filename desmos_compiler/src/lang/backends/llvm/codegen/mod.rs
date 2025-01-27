@@ -2,19 +2,20 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Context, Result};
 use inkwell::builder::Builder;
+use inkwell::execution_engine::JitFunction;
 use inkwell::module::Module;
 
-use inkwell::types::{BasicType, StructType};
-use inkwell::values::FunctionValue;
+use inkwell::types::{BasicType, FloatType, StructType};
+use inkwell::values::{BasicMetadataValueEnum, FunctionValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 
 use crate::expressions::Expressions;
-use crate::lang::parser::{Expr, Node};
+use crate::lang::parser::{Expr, Node, ResolvedExpr};
 use functions::IMPORTED_FUNCTIONS;
 
 use self::functions::{free, malloc};
 
-use super::jit::{ExplicitJitFn, ImplicitJitFn};
+use super::jit::{ExplicitJitFn, ImplicitJitFn, JitListValue, JitValue, ListLayout, PointLayout};
 use super::types::{ListType, ValueType};
 use super::value::Value;
 use super::{CompiledExpr, CompiledExprs};
@@ -57,11 +58,8 @@ pub fn compile_all_exprs<'ctx>(
     IMPORTED_FUNCTIONS
         .into_iter()
         .for_each(|(name, ret, args, p)| {
-            let fn_type = ret.type_enum(context).fn_type(
-                &args
-                    .iter()
-                    .map(|arg| arg.metadata(context))
-                    .collect::<Vec<_>>(),
+            let fn_type = ret.type_enum().fn_type(
+                &args.iter().map(|arg| arg.metadata()).collect::<Vec<_>>(),
                 false,
             );
 
@@ -71,38 +69,62 @@ pub fn compile_all_exprs<'ctx>(
 
     let mut compiled_exprs = CompiledExprs::new();
 
+    //We first have to compile everything
     for (id, expr) in &exprs.exprs {
-        match expr {
+        match &expr.expr {
             Expr::Implicit { lhs, rhs, .. } => {
-                let args = [ValueType::Number, ValueType::Number];
+                let args_t = [
+                    ValueType::Number(codegen.float_type),
+                    ValueType::Number(codegen.float_type),
+                ];
 
                 let lhs_name = format!("implicit_{}_lhs", id.0);
-                _ = codegen.compile_fn(&lhs_name, lhs, &args).inspect_err(|e| {
-                    compiled_exprs.errors.insert(*id, e.to_string());
-                });
+                _ = codegen
+                    .compile_fn(&lhs_name, lhs, &args_t, Some(0), Some(1))
+                    .inspect_err(|e| {
+                        compiled_exprs.errors.insert(*id, e.to_string());
+                    });
 
                 let rhs_name = format!("implicit_{}_rhs", id.0);
-                _ = codegen.compile_fn(&rhs_name, rhs, &args).inspect_err(|e| {
-                    compiled_exprs.errors.insert(*id, e.to_string());
-                });
+                _ = codegen
+                    .compile_fn(&rhs_name, rhs, &args_t, Some(0), Some(1))
+                    .inspect_err(|e| {
+                        compiled_exprs.errors.insert(*id, e.to_string());
+                    });
             }
             Expr::Explicit { expr } => {
                 let name = format!("explicit_{}", id.0);
 
-                let args = vec![ValueType::Number];
-                _ = codegen.compile_fn(&name, expr, &args).inspect_err(|e| {
-                    compiled_exprs.errors.insert(*id, e.to_string());
-                });
+                let args = vec![ValueType::Number(codegen.float_type)];
+                _ = codegen
+                    .compile_fn(&name, expr, &args, Some(0), None)
+                    .inspect_err(|e| {
+                        compiled_exprs.errors.insert(*id, e.to_string());
+                    });
+            }
+            Expr::VarDef { rhs, ident } => {
+                if !expr.used_idents.is_empty() {
+                    continue;
+                }
+                let name = format!("{}_number_number", ident);
+
+                let args = vec![];
+                _ = codegen
+                    .compile_fn(&name, rhs, &args, None, None)
+                    .inspect_err(|e| {
+                        compiled_exprs.errors.insert(*id, e.to_string());
+                    });
             }
             _ => {}
         }
     }
 
+    // Only then we can retrive the functions
     for (id, expr) in &exprs.exprs {
         if compiled_exprs.errors.contains_key(id) {
             continue;
         }
-        match expr {
+        match &expr.expr {
             Expr::Implicit { op, .. } => {
                 let lhs_name = format!("implicit_{}_lhs", id.0);
                 let lhs_result = unsafe {
@@ -154,6 +176,46 @@ pub fn compile_all_exprs<'ctx>(
 
                 compiled_exprs.insert(*id, result);
             }
+            Expr::VarDef { ident, .. } => {
+                if !expr.used_idents.is_empty() {
+                    continue;
+                }
+                let name = format!("{}_number_number", ident);
+
+                let return_type = *codegen.return_types.get(&name).unwrap_or_else(|| {
+                    panic!("Return type not found for explicit function: {}", name);
+                });
+
+                let value = unsafe {
+                    match return_type {
+                        ValueType::Number(_) => execution_engine.get_function(&name).map(
+                            |f: JitFunction<unsafe extern "C" fn() -> f64>| {
+                                JitValue::Number(f.call())
+                            },
+                        ),
+
+                        ValueType::Point(_) => execution_engine.get_function(&name).map(
+                            |f: JitFunction<unsafe extern "C" fn() -> PointLayout>| {
+                                JitValue::Point(f.call())
+                            },
+                        ),
+                        ValueType::List(list_t) => match list_t {
+                            ListType::Number(_) => execution_engine.get_function(&name).map(
+                                |f: JitFunction<unsafe extern "C" fn() -> ListLayout>| {
+                                    JitValue::List(JitListValue::Number(f.call()))
+                                },
+                            ),
+                        },
+                    }
+                };
+
+                compiled_exprs.insert(
+                    *id,
+                    value
+                        .context("failed to lookup function")
+                        .map(|value| CompiledExpr::Constant { value }),
+                );
+            }
             _ => {}
         }
     }
@@ -161,14 +223,32 @@ pub fn compile_all_exprs<'ctx>(
     compiled_exprs
 }
 
+pub struct FnContext<'ctx, 'a> {
+    args: &'a [Value<'ctx>],
+    x_index: Option<u32>,
+    y_index: Option<u32>,
+}
+
+impl<'ctx, 'a> FnContext<'ctx, 'a> {
+    pub fn get_x(&self) -> Option<&Value<'ctx>> {
+        self.x_index.map(|i| self.args.get(i as usize)).flatten()
+    }
+
+    pub fn get_y(&self) -> Option<&Value<'ctx>> {
+        self.y_index.map(|i| self.args.get(i as usize)).flatten()
+    }
+}
+
 pub struct CodeGen<'ctx, 'expr> {
     pub module: Module<'ctx>,
-    pub return_types: HashMap<String, ValueType>,
+    pub return_types: HashMap<String, ValueType<'ctx>>,
 
     context: &'ctx inkwell::context::Context,
     builder: Builder<'ctx>,
     exprs: &'expr Expressions,
 
+    float_type: FloatType<'ctx>,
+    point_type: StructType<'ctx>,
     list_type: StructType<'ctx>,
 }
 
@@ -183,7 +263,14 @@ impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
             builder,
             return_types: HashMap::new(),
             exprs,
-
+            float_type: context.f64_type(),
+            point_type: context.struct_type(
+                &[
+                    context.f64_type().as_basic_type_enum(),
+                    context.f64_type().as_basic_type_enum(),
+                ],
+                false,
+            ),
             list_type: context.struct_type(
                 &[
                     context.i64_type().as_basic_type_enum(),
@@ -196,33 +283,36 @@ impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
         }
     }
 
-    pub fn get_fn(
-        &mut self,
-        name: &str,
-        types: &[ValueType],
-    ) -> Result<(FunctionValue<'ctx>, ValueType)> {
+    pub fn codegen_fn_call(&mut self, name: &str, fn_args: &[Value<'ctx>]) -> Result<Value<'ctx>> {
+        let types: Vec<_> = fn_args.iter().map(|v| v.get_type()).collect();
         let len = types.iter().map(|t| t.name().len() + 1).sum::<usize>() + name.len();
 
         let mut specialized_name = String::with_capacity(len);
         specialized_name.push_str(name);
 
-        for t in types {
+        for t in fn_args {
             specialized_name.push('_');
-            specialized_name.push_str(t.name());
+            specialized_name.push_str(t.get_type().name());
         }
 
-        match self.module.get_function(&specialized_name) {
-            Some(function) => Ok((
+        let (function, ret_type) = match self.module.get_function(&specialized_name) {
+            Some(function) => (
                 function,
                 *self
                     .return_types
                     .get(&specialized_name)
                     .expect("compile_fn should have inserted return type"),
-            )),
+            ),
             None => match self.exprs.get_expr(name) {
-                Some(Expr::FnDef { rhs, .. }) => {
+                Some(Expr::FnDef { rhs, args, .. }) => {
                     let block = self.builder.get_insert_block();
-                    let function = self.compile_fn(&specialized_name, rhs, types);
+
+                    let x_index = args.iter().position(|s| *s == "x").map(|x| x as u32);
+
+                    let y_index = args.iter().position(|s| *s == "y").map(|x| x as u32);
+
+                    let function =
+                        self.compile_fn(&specialized_name, rhs, &types, x_index, y_index);
 
                     if let Some(b) = block {
                         self.builder.position_at_end(b)
@@ -232,15 +322,30 @@ impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
                         .return_types
                         .get(&specialized_name)
                         .expect("compile_fn should have inserted return type");
-                    Ok((function?, *return_type))
+
+                    (function?, *return_type)
                 }
                 None => bail!("no exprssion found for function {name}"),
                 _ => unreachable!("this indicates a bug"),
             },
-        }
+        };
+
+        let fn_args = fn_args
+            .iter()
+            .map(|arg| Ok(BasicMetadataValueEnum::from(arg.as_basic_value_enum())))
+            .collect::<Result<Vec<_>>>()?;
+
+        Value::from_basic_value_enum(
+            self.builder
+                .build_call(function, &fn_args, name)?
+                .try_as_basic_value()
+                .expect_left("return type should not be void"),
+            ret_type,
+        )
+        .context("ret type does not match expected ret type")
     }
 
-    pub fn get_var(&mut self, name: &str) -> Result<Value<'ctx>> {
+    pub fn get_var(&mut self, name: &str, fn_context: &FnContext<'ctx, '_>) -> Result<Value<'ctx>> {
         match self.module.get_function(name) {
             Some(global) => Value::from_basic_value_enum(
                 self.builder
@@ -250,18 +355,46 @@ impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
                 self.return_types[name],
             )
             .context("type error"),
-            None => match self.exprs.get_expr(name) {
-                Some(Expr::VarDef { rhs, .. }) => {
+            None => match self.exprs.get_resolved_expr(name) {
+                Some(ResolvedExpr {
+                    expr: Expr::VarDef { rhs, .. },
+                    used_idents,
+                }) => {
+                    let x_var = fn_context
+                        .get_x()
+                        .cloned()
+                        .unwrap_or_else(|| Value::Number(self.float_type.const_zero()));
+                    let y_var = fn_context
+                        .get_y()
+                        .cloned()
+                        .unwrap_or_else(|| Value::Number(self.float_type.const_zero()));
                     let block = self.builder.get_insert_block();
-                    let compute_global = self.compile_fn(name, rhs, &[])?;
+                    let compute_global = self.compile_fn(
+                        name,
+                        rhs,
+                        &[x_var.get_type(), y_var.get_type()],
+                        Some(0),
+                        Some(1),
+                    )?;
 
                     if let Some(b) = block {
                         self.builder.position_at_end(b)
                     }
 
+                    if used_idents.contains("y") && fn_context.y_index.is_none() {
+                        bail!("try adding variable y or making the eqution explicit");
+                    }
+
                     Value::from_basic_value_enum(
                         self.builder
-                            .build_call(compute_global, &[], name)?
+                            .build_call(
+                                compute_global,
+                                &[
+                                    x_var.as_basic_value_enum().into(),
+                                    y_var.as_basic_value_enum().into(),
+                                ],
+                                name,
+                            )?
                             .try_as_basic_value()
                             .expect_left("return type should not be void"),
                         self.return_types[name],
@@ -278,17 +411,20 @@ impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
         &mut self,
         name: &str,
         node: &Node,
-        args: &[ValueType],
+        args: &[ValueType<'ctx>],
+        x_index: Option<u32>,
+        y_index: Option<u32>,
     ) -> Result<FunctionValue<'ctx>> {
-        let types: Vec<_> = args.iter().map(|t| t.metadata(self.context)).collect();
+        let types: Vec<_> = args.iter().map(|t| t.metadata()).collect();
 
-        let ret_type = self.return_type(node, args)?;
+        let ret_type = self.return_type(node, args)?.clone();
 
         self.return_types.insert(name.to_owned(), ret_type);
 
         let fn_type = match ret_type {
-            ValueType::List(ListType::Number) => self.list_type.fn_type(&types, false),
-            ValueType::Number => self.context.f64_type().fn_type(&types, false),
+            ValueType::List(list_type) => list_type.get_type().fn_type(&types, false),
+            ValueType::Point(p) => p.fn_type(&types, false),
+            ValueType::Number(n) => n.fn_type(&types, false),
         };
 
         let function = self.module.add_function(name, fn_type, None);
@@ -305,7 +441,14 @@ impl<'ctx, 'expr> CodeGen<'ctx, 'expr> {
         let entry = self.context.append_basic_block(function, "entry");
         self.builder.position_at_end(entry);
 
-        let value = self.codegen_expr(node, &args)?;
+        let value = self.codegen_expr(
+            node,
+            &FnContext {
+                args: &args,
+                x_index,
+                y_index,
+            },
+        )?;
 
         self.builder
             .build_return(Some(&value.as_basic_value_enum()))?;

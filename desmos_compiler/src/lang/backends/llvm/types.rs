@@ -1,69 +1,56 @@
 use inkwell::{
-    types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum},
+    types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType, StructType},
     AddressSpace,
 };
 
 #[derive(Debug, Clone, Copy)]
-pub enum ListType {
-    Number,
+pub enum ListType<'ctx> {
+    Number(StructType<'ctx>),
 }
 
-impl ListType {
+impl<'ctx> ListType<'ctx> {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Number => "number_list",
+            Self::Number(_) => "number_list",
+        }
+    }
+
+    pub fn get_type(&self) -> StructType<'ctx> {
+        match self {
+            ListType::Number(list) => *list,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ValueType {
-    Number,
-    List(ListType),
+pub enum ValueType<'ctx> {
+    Number(FloatType<'ctx>),
+    Point(StructType<'ctx>),
+    List(ListType<'ctx>),
 }
 
-impl ValueType {
+impl<'ctx> ValueType<'ctx> {
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Number => "number",
+            Self::Number(_) => "number",
+            Self::Point(_) => "point",
             Self::List(list_type) => list_type.name(),
         }
     }
 
-    pub fn metadata<'ctx>(
-        &self,
-        context: &'ctx inkwell::context::Context,
-    ) -> BasicMetadataTypeEnum<'ctx> {
+    pub fn metadata(&self) -> BasicMetadataTypeEnum<'ctx> {
         match self {
-            Self::Number => BasicMetadataTypeEnum::FloatType(context.f64_type()),
-            Self::List(_) => BasicMetadataTypeEnum::StructType(
-                context.struct_type(
-                    &[
-                        context
-                            .ptr_type(AddressSpace::default())
-                            .as_basic_type_enum(),
-                        context.i64_type().as_basic_type_enum(),
-                    ],
-                    false,
-                ),
-            ),
+            Self::Number(t) => BasicMetadataTypeEnum::FloatType(*t),
+            Self::Point(p) => BasicMetadataTypeEnum::StructType(*p),
+            Self::List(list) => BasicMetadataTypeEnum::StructType(list.get_type()),
         }
     }
 
-    pub fn type_enum<'ctx>(&self, context: &'ctx inkwell::context::Context) -> BasicTypeEnum<'ctx> {
+    pub fn type_enum(&self) -> BasicTypeEnum<'ctx> {
         match self {
-            Self::Number => BasicTypeEnum::FloatType(context.f64_type()),
-            Self::List(_) => BasicTypeEnum::StructType(
-                context.struct_type(
-                    &[
-                        context
-                            .ptr_type(AddressSpace::default())
-                            .as_basic_type_enum(),
-                        context.i64_type().as_basic_type_enum(),
-                    ],
-                    false,
-                ),
-            ),
+            Self::Number(n) => BasicTypeEnum::FloatType(*n),
+            Self::Point(p) => BasicTypeEnum::StructType(*p),
+            Self::List(list) => BasicTypeEnum::StructType(list.get_type()),
         }
     }
 }

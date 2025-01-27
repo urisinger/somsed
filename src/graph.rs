@@ -90,8 +90,6 @@ impl Program<Message> for GraphRenderer<'_> {
             })
         });
 
-        let mut geometries: Vec<_> = graphs.collect();
-
         // 2) Create a `Frame` to draw the grid and axes
         let mut grid = Frame::new(renderer, bounds.size());
 
@@ -103,7 +101,6 @@ impl Program<Message> for GraphRenderer<'_> {
         } else {
             pow_10
         };
-        println!("{step_size}");
 
         draw_grid(
             &mut grid,
@@ -145,7 +142,10 @@ impl Program<Message> for GraphRenderer<'_> {
             Stroke::default().with_width(3.0),
         );
 
-        geometries.push(grid.into_geometry());
+        let geometries: Vec<_> = std::iter::once(grid.into_geometry())
+            .chain(graphs)
+            .collect();
+
         geometries
     }
 

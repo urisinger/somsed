@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use desmos_compiler::expressions::ExpressionId;
 use iced::{
@@ -14,12 +14,14 @@ use super::icons;
 use crate::Message;
 
 pub fn view<'element>(
+    sorted_expressions: &'element BTreeSet<ExpressionId>,
     equations: &'element HashMap<ExpressionId, String>,
     errors: &'element HashMap<ExpressionId, String>,
     shown_error: &Option<ExpressionId>,
 ) -> Element<'element, crate::Message> {
-    let mut elements = equations
+    let mut elements = sorted_expressions
         .iter()
+        .filter_map(|id| equations.get(id).map(|expr| (id, expr)))
         .map(|(i, equation)| {
             let input = TextInput::new("", equation)
                 .on_input(move |s| Message::EquationChanged(*i, s))

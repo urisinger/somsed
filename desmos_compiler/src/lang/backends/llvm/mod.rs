@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use jit::JitValue;
+
 use crate::{expressions::ExpressionId, lang::parser::ComparisonOp};
 
 use self::jit::{ExplicitJitFn, ImplicitJitFn};
@@ -43,5 +45,8 @@ pub enum CompiledExpr<'ctx> {
     },
     Explicit {
         lhs: ExplicitJitFn<'ctx>,
+    },
+    Constant {
+        value: JitValue,
     },
 }

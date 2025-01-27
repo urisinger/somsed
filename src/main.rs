@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, BinaryHeap, HashMap};
 
 use flume::Sender;
 
@@ -35,8 +35,9 @@ fn main() -> iced::Result {
 pub enum Message {
     Moved(Vector),
     Scaled(f32, Option<Vector>),
-    EquationChanged(ExpressionId, String),
     EquationAdded(String),
+    EquationChanged(ExpressionId, String),
+    EquationRemoved(ExpressionId),
     ShowError(Option<ExpressionId>),
     FocusExpr(usize),
     Resized(pane_grid::ResizeEvent),
@@ -49,26 +50,30 @@ enum PaneType {
 }
 
 struct Somsed {
-    panes: pane_grid::State<PaneType>,
+    // Big data structures used to store expressions
+    sorted_expressions: BTreeSet<ExpressionId>,
+
     graph_caches: HashMap<ExpressionId, Cache>,
     expressions: HashMap<ExpressionId, String>,
-
     points: HashMap<ExpressionId, Vec<Vector>>,
-
     errors: HashMap<ExpressionId, String>,
 
-    equation_tx: Option<Sender<PointsServerRequest>>,
+    // Fields used for rendering state
+    panes: pane_grid::State<PaneType>,
 
     shown_error: Option<ExpressionId>,
 
-    pub max_id: u32,
-
+    max_id: u32,
     range: f32,
     mid: Vector,
-    resolution: u32,
+
+    // Sender to send Requests to the point server
+    equation_tx: Option<Sender<PointsServerRequest>>,
 }
 
 impl Somsed {
+    const DEFAULT_MID: Vector = Vector { x: 0.0, y: 0.0 };
+    const DEFAULT_RANGE: f32 = 10.0;
     fn new() -> (Self, Task<Message>) {
         let graph_caches = HashMap::new();
 
@@ -82,9 +87,9 @@ impl Somsed {
         (
             Self {
                 panes,
-                range: 10.0,
-                mid: Vector { x: 0.0, y: 0.0 },
-                resolution: 100,
+                range: Self::DEFAULT_RANGE,
+                mid: Self::DEFAULT_MID,
+                sorted_expressions: BTreeSet::new(),
                 errors: HashMap::new(),
                 max_id: 0,
                 equation_tx: None,
@@ -113,6 +118,7 @@ impl Somsed {
                 .height(Length::Fill),
             ),
             PaneType::Sidebar => pane_grid::Content::new(sidebar::view(
+                &self.sorted_expressions,
                 &self.expressions,
                 &self.errors,
                 &self.shown_error,
@@ -138,63 +144,46 @@ impl Somsed {
             Message::Moved(p) => {
                 self.mid = self.mid + p;
                 self.clear_caches();
-                for id in self.expressions.keys() {
-                    let _ = self
-                        .equation_tx
-                        .as_ref()
-                        .expect("sender not received")
-                        .send(PointsServerRequest::Compute {
-                            id: *id,
-                            range: self.range,
-                            mid: self.mid,
-                            resolution: self.resolution,
-                        });
-                }
+                let _ = self
+                    .equation_tx
+                    .as_ref()
+                    .expect("sender not received")
+                    .send(PointsServerRequest::Resize {
+                        range: self.range,
+                        mid: self.mid,
+                    });
             }
             Message::EquationChanged(id, s) => {
                 self.expressions.insert(id, s.clone());
 
                 if s.is_empty() {
-                    return Task::none();
+                    self.points.remove(&id);
+                    let _ = self
+                        .equation_tx
+                        .as_ref()
+                        .map(|sender| sender.send(PointsServerRequest::Remove { id }));
                 }
+
                 let _ = self
                     .equation_tx
                     .as_ref()
                     .map(|sender| sender.send(PointsServerRequest::Compile { id, expr_source: s }));
-
-                let _ = self.equation_tx.as_ref().map(|sender| {
-                    sender.send(PointsServerRequest::Compute {
-                        id,
-                        range: self.range,
-                        mid: self.mid,
-                        resolution: self.resolution,
-                    })
-                });
             }
             Message::EquationAdded(s) => {
-                let id = ExpressionId(self.max_id);
-                self.max_id += 1;
+                let id = self.add_expression(s);
+                return focus(Id::new(format!("equation_{}", id.0)));
+            }
+            Message::EquationRemoved(id) => {
+                self.points.remove(&id);
+                self.expressions.remove(&id);
+                self.errors.remove(&id);
 
-                self.expressions.insert(id, s.clone());
-                self.graph_caches.insert(id, Cache::new());
-                if s.is_empty() {
-                    return focus(Id::new(format!("equation_{}", id.0)));
-                }
+                self.sorted_expressions.remove(&id);
+
                 let _ = self
                     .equation_tx
                     .as_ref()
-                    .expect("sender not recived")
-                    .send(PointsServerRequest::Compile { id, expr_source: s });
-
-                let _ = self.equation_tx.as_ref().expect("sender not recived").send(
-                    PointsServerRequest::Compute {
-                        id,
-                        range: self.range,
-                        mid: self.mid,
-                        resolution: self.resolution,
-                    },
-                );
-                return focus(Id::new(format!("equation_{}", id.0)));
+                    .map(|sender| sender.send(PointsServerRequest::Remove { id }));
             }
             Message::Scaled(new_range, mid) => {
                 self.range = new_range;
@@ -203,18 +192,14 @@ impl Somsed {
                 }
                 self.clear_caches();
 
-                for id in self.expressions.keys() {
-                    let _ = self
-                        .equation_tx
-                        .as_ref()
-                        .expect("sender not received")
-                        .send(PointsServerRequest::Compute {
-                            id: *id,
-                            range: self.range,
-                            mid: self.mid,
-                            resolution: self.resolution,
-                        });
-                }
+                let _ = self
+                    .equation_tx
+                    .as_ref()
+                    .expect("sender not received")
+                    .send(PointsServerRequest::Resize {
+                        range: self.range,
+                        mid: self.mid,
+                    });
             }
             Message::ShowError(i) => {
                 self.shown_error = i;
@@ -232,9 +217,13 @@ impl Somsed {
                     }
                     Event::Error { id, message } => {
                         self.errors.insert(id, message);
+                        self.points.remove(&id);
                     }
                     Event::Sender(sender) => {
                         self.equation_tx = Some(sender);
+                    }
+                    Event::Success { id } => {
+                        self.errors.remove(&id);
                     }
                 };
                 return Task::none();
@@ -242,5 +231,25 @@ impl Somsed {
         };
 
         Task::none()
+    }
+}
+
+impl Somsed {
+    fn add_expression(&mut self, s: String) -> ExpressionId {
+        let id = ExpressionId(self.max_id);
+        self.sorted_expressions.insert(id);
+        self.max_id += 1;
+
+        self.expressions.insert(id, s.clone());
+        self.graph_caches.insert(id, Cache::new());
+        if s.is_empty() {
+            return id;
+        }
+        let _ = self
+            .equation_tx
+            .as_ref()
+            .expect("sender not recived")
+            .send(PointsServerRequest::Compile { id, expr_source: s });
+        id
     }
 }

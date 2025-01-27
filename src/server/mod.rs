@@ -1,26 +1,27 @@
-use crate::{ExpressionId, Expressions};
+use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Result};
-use desmos_compiler::lang::backends::llvm::jit::{ExplicitJitFn, JitValue};
+use desmos_compiler::lang::backends::llvm::jit::{ExplicitFn, ExplicitJitFn, JitValue};
 use desmos_compiler::lang::backends::llvm::CompiledExpr;
 use desmos_compiler::lang::backends::llvm::{codegen::compile_all_exprs, CompiledExprs};
 
 use flume::r#async::RecvStream;
 use iced::Vector;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::thread;
 
 // Define the server requests
 #[derive(Debug)]
 pub enum PointsServerRequest {
-    Compute {
-        id: ExpressionId,
+    Resize {
         range: f32,
         mid: Vector,
-        resolution: u32,
     },
     Compile {
         id: ExpressionId,
         expr_source: String,
+    },
+    Remove {
+        id: ExpressionId,
     },
 }
 
@@ -29,6 +30,9 @@ pub enum Event {
     Computed {
         id: ExpressionId,
         points: Vec<Vector>,
+    },
+    Success {
+        id: ExpressionId,
     },
     Error {
         id: ExpressionId,
@@ -47,8 +51,10 @@ pub fn points_server() -> RecvStream<'static, Event> {
         let mut compiled_exprs = CompiledExprs::new();
         event_tx.send(Event::Sender(equation_tx)).unwrap();
 
+        let mut mid = Somsed::DEFAULT_MID;
+        let mut range = Somsed::DEFAULT_RANGE;
         loop {
-            let mut compute_requests = HashMap::new();
+            let mut compute_requests = HashSet::new();
 
             let mut request = equation_rx.recv().unwrap();
             loop {
@@ -66,12 +72,21 @@ pub fn points_server() -> RecvStream<'static, Event> {
                                 .unwrap();
                             request = match equation_rx.try_recv() {
                                 Ok(request) => request,
-                                Err(_) => break,
+                                Err(_) => {
+                                    expressions.remove_expr(id);
+                                    break;
+                                }
                             };
                             continue;
                         }
 
                         compiled_exprs = compile_all_exprs(&context, &expressions);
+
+                        for &id in expressions.exprs.keys() {
+                            if !compiled_exprs.errors.contains_key(&id) {
+                                event_tx.send(Event::Success { id }).unwrap();
+                            }
+                        }
 
                         for (&id, e) in &compiled_exprs.errors {
                             event_tx
@@ -81,9 +96,24 @@ pub fn points_server() -> RecvStream<'static, Event> {
                                 })
                                 .unwrap();
                         }
+
+                        if compiled_exprs.compiled.contains_key(&id) {
+                            compute_requests.insert(id);
+                        }
                     }
-                    PointsServerRequest::Compute { id, range, mid, .. } => {
-                        compute_requests.insert(id, Some((range, mid)));
+                    PointsServerRequest::Remove { id } => {
+                        compiled_exprs.compiled.remove(&id);
+                        compiled_exprs.errors.remove(&id);
+                    }
+                    PointsServerRequest::Resize {
+                        range: new_range,
+                        mid: new_mid,
+                    } => {
+                        range = new_range;
+                        mid = new_mid;
+                        compiled_exprs.compiled.keys().for_each(|id| {
+                            compute_requests.insert(id.clone());
+                        });
                     }
                 }
                 request = match equation_rx.try_recv() {
@@ -92,13 +122,14 @@ pub fn points_server() -> RecvStream<'static, Event> {
                 };
             }
 
-            for (&id, (range, mid)) in compute_requests
-                .iter()
-                .filter_map(|(id, request)| request.map(|v| (id, v)))
-            {
+            for &id in compute_requests.iter() {
                 let compiled = compiled_exprs.compiled.get(&id);
                 let points_result = match compiled {
-                    Some(CompiledExpr::Explicit { lhs }) => points(lhs, range, mid, 9, 14),
+                    Some(CompiledExpr::Explicit { lhs }) => match lhs {
+                        ExplicitJitFn::Number(lhs) => points(lhs, range, mid, 9, 14),
+                        ExplicitJitFn::Point(_) => todo!(),
+                        ExplicitJitFn::List(_) => todo!(),
+                    },
                     Some(_) => Err(anyhow!("Only explicit expressions are supported")),
                     None => Err(anyhow!("Failed to retrieve compiled expression")),
                 };
@@ -116,6 +147,10 @@ pub fn points_server() -> RecvStream<'static, Event> {
                         event_tx.send(Event::Error { id, message }).unwrap();
                     }
                 }
+
+                if !equation_rx.is_empty() {
+                    continue;
+                }
             }
         }
     });
@@ -124,7 +159,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
 }
 
 pub fn points(
-    function: &ExplicitJitFn,
+    function: &ExplicitFn<f64>,
     range: f32,
     mid: Vector,
     min_depth: u32,
@@ -134,26 +169,10 @@ pub fn points(
 
     let min_x = (mid.x - range / 2.0) as f32;
 
-    let min = Vector::new(
-        min_x,
-        match unsafe { function.call(min_x as f64) } {
-            JitValue::Number(num) => num as f32,
-            JitValue::List(_) => {
-                return Err(anyhow!("expected a numeric return value, got list type"))
-            }
-        },
-    );
+    let min = Vector::new(min_x, unsafe { function.call(min_x as f64) } as f32);
 
     let max_x = min_x + range;
-    let max = Vector::new(
-        max_x,
-        match unsafe { function.call(max_x as f64) } {
-            JitValue::Number(num) => num as f32,
-            JitValue::List(_) => {
-                return Err(anyhow!("expected a numeric return value, got list type"))
-            }
-        },
-    );
+    let max = Vector::new(max_x, unsafe { function.call(max_x as f64) } as f32);
 
     points.push(min);
 
@@ -165,7 +184,7 @@ pub fn points(
 }
 
 fn subdivide(
-    function: &ExplicitJitFn,
+    function: &ExplicitFn<f64>,
     min: Vector,
     max: Vector,
     depth: u32,
@@ -175,15 +194,7 @@ fn subdivide(
 ) -> Result<()> {
     let x_mid = (min.x + max.x) / 2.0;
 
-    let mid = Vector::new(
-        x_mid,
-        match unsafe { function.call(x_mid as f64) } {
-            JitValue::Number(num) => num as f32,
-            JitValue::List(_) => {
-                return Err(anyhow!("expected a numeric return value, got list type"))
-            }
-        },
-    );
+    let mid = Vector::new(x_mid, unsafe { function.call(x_mid as f64) } as f32);
 
     // Check if subdivision is necessary
     if depth <= max_depth && (depth < min_depth || should_descend(min, mid, max)) {

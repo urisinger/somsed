@@ -12,6 +12,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
     pub(crate) fn codegen_unary_op(&self, lhs: Value<'ctx>, op: UnaryOp) -> Result<Value<'ctx>> {
         Ok(match lhs {
             Value::Number(lhs) => Value::Number(self.codegen_unary_number_op(lhs, op)?),
+            Value::Point(_) => bail!("Unary ops are not implemented for Points"),
             Value::List(_) => bail!("Unary operations are not defined for lists"),
         })
     }

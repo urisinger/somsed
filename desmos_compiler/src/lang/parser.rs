@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-use std::iter;
+use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use lazy_static::lazy_static;
 use pest::iterators::Pairs;
 
@@ -39,6 +38,28 @@ lazy_static! {
     };
 }
 
+#[derive(Debug)]
+pub struct ResolvedExpr {
+    pub expr: Expr,
+    pub used_idents: HashSet<String>,
+}
+
+impl ResolvedExpr {
+    pub fn parse(s: &str) -> Result<Self> {
+        let pairs = ExprParser::parse(Rule::program, s)?
+            .next()
+            .unwrap()
+            .into_inner();
+
+        let mut expr = Expr::decide_expr_type(parse_expr(pairs)?);
+
+        let used_idents = expr.used_idents();
+        expr.replace_scope();
+
+        Ok(Self { expr, used_idents })
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Expr {
     Implicit {
@@ -71,15 +92,31 @@ impl Expr {
         Ok(expr)
     }
 
+    fn used_idents(&self) -> HashSet<String> {
+        let mut idents = HashSet::new();
+
+        match self {
+            Expr::Explicit { expr } => expr.used_idents(&mut idents),
+            Expr::Implicit { lhs, rhs, .. } => {
+                lhs.used_idents(&mut idents);
+                rhs.used_idents(&mut idents);
+            }
+            Expr::VarDef { rhs, .. } => rhs.used_idents(&mut idents),
+            Expr::FnDef { rhs, .. } => rhs.used_idents(&mut idents),
+        }
+        idents
+    }
+
     fn replace_scope(&mut self) {
         match self {
             Expr::Explicit { expr } => {
                 let mut scope = HashMap::with_capacity(1);
+
                 scope.insert("x", 0);
-                expr.replace_scope(&scope);
+                expr.replace_scope(&scope)
             }
             Expr::Implicit { lhs, rhs, .. } => {
-                let mut scope = HashMap::with_capacity(1);
+                let mut scope = HashMap::with_capacity(2);
                 scope.insert("x", 0);
 
                 scope.insert("y", 1);
@@ -87,7 +124,13 @@ impl Expr {
                 lhs.replace_scope(&scope);
                 rhs.replace_scope(&scope);
             }
-            Expr::VarDef { rhs, .. } => rhs.replace_scope(&HashMap::new()),
+            Expr::VarDef { rhs, .. } => {
+                let mut scope = HashMap::with_capacity(1);
+                scope.insert("x", 0);
+
+                scope.insert("y", 1);
+                rhs.replace_scope(&scope)
+            }
             Expr::FnDef { args, rhs, .. } => rhs.replace_scope(
                 &args
                     .iter()
@@ -161,9 +204,7 @@ pub enum Node {
         ident: String,
         args: Vec<Node>,
     },
-    Tuple {
-        args: Vec<Node>,
-    },
+
     Comp {
         lhs: Box<Node>,
         op: ComparisonOp,
@@ -176,38 +217,58 @@ pub enum Node {
 impl Node {
     pub fn replace_scope(&mut self, scope: &HashMap<&str, usize>) {
         match self {
+            Node::Ident(ident) => {
+                if let Some(id) = scope.get(ident.as_str()) {
+                    *self = Node::FnArg { index: *id };
+                }
+            }
             Node::FnArg { .. } => {}
             Node::Lit(Literal::Float(_)) => {}
             Node::Lit(Literal::List(nodes)) => {
-                for node in nodes {
-                    node.replace_scope(scope);
-                }
+                nodes.iter_mut().for_each(|node| node.replace_scope(scope))
             }
-            Node::Ident(ident) => {
-                if let Some(id) = scope.get(ident.as_str()) {
-                    *self = Node::FnArg { index: *id }
-                }
+            Node::Lit(Literal::Point(x, y)) => {
+                x.replace_scope(scope);
+                y.replace_scope(scope);
             }
+
             Node::BinOp { lhs, rhs, .. } => {
                 lhs.replace_scope(scope);
                 rhs.replace_scope(scope);
             }
-            Node::UnaryOp { val, .. } => {
-                val.replace_scope(scope);
-            }
-            Node::FnCall { args, .. } => {
-                for arg in args {
-                    arg.replace_scope(scope);
-                }
-            }
-            Node::Tuple { args } => {
-                for arg in args {
-                    arg.replace_scope(scope);
-                }
-            }
+            Node::UnaryOp { val, .. } => val.replace_scope(scope),
+            Node::FnCall { args, .. } => args.iter_mut().for_each(|node| node.replace_scope(scope)),
             Node::Comp { lhs, rhs, .. } => {
                 lhs.replace_scope(scope);
                 rhs.replace_scope(scope);
+            }
+        }
+    }
+
+    fn used_idents(&self, idents: &mut HashSet<String>) {
+        match self {
+            Node::Ident(ident) => {
+                idents.insert(ident.as_str().to_owned());
+            }
+            Node::FnArg { .. } => {}
+            Node::Lit(Literal::Float(_)) => {}
+            Node::Lit(Literal::List(nodes)) => {
+                nodes.iter().for_each(|node| node.used_idents(idents))
+            }
+            Node::Lit(Literal::Point(x, y)) => {
+                x.used_idents(idents);
+                y.used_idents(idents);
+            }
+
+            Node::BinOp { lhs, rhs, .. } => {
+                lhs.used_idents(idents);
+                rhs.used_idents(idents);
+            }
+            Node::UnaryOp { val, .. } => val.used_idents(idents),
+            Node::FnCall { args, .. } => args.iter().for_each(|node| node.used_idents(idents)),
+            Node::Comp { lhs, rhs, .. } => {
+                lhs.used_idents(idents);
+                rhs.used_idents(idents);
             }
         }
     }
@@ -226,6 +287,7 @@ pub enum ComparisonOp {
 pub enum Literal {
     Float(f64),
     List(Vec<Node>),
+    Point(Box<Node>, Box<Node>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -283,13 +345,13 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
                         _ => {
                             if pairs.len() == 0 {
                                 parse_expr(func_name.into_inner())?
-                            } else {
-                                let args = iter::once(func_name)
-                                    .chain(pairs)
-                                    .map(|expr| parse_expr(expr.into_inner()))
-                                    .collect::<Result<Vec<_>>>()?;
+                            } else if pairs.len() == 1 {
+                                let x = Box::new(parse_expr(func_name.into_inner())?);
+                                let y = Box::new(parse_expr(pairs.next().unwrap().into_inner())?);
 
-                                Node::Tuple { args }
+                                Node::Lit(Literal::Point(x, y))
+                            } else {
+                                bail!("Points may only have two coordinates")
                             }
                         }
                     }
@@ -479,14 +541,12 @@ mod tests {
                 rhs: Box::new(Node::FnArg { index: 1 }),
             }
         },
-        test_tuple: "(1, 2, 3)" => Expr::Explicit {
-            expr: Node::Tuple {
-                args: vec![
-                    Node::Lit(Literal::Float(1.0)),
-                    Node::Lit(Literal::Float(2.0)),
-                    Node::Lit(Literal::Float(3.0)),
-                ]
-            }
+        test_tuple: "(1, 2)" => Expr::Explicit {
+            expr: Node::Lit(Literal::Point(
+                Box::new(Node::Lit(Literal::Float(2.0))),
+                Box::new(Node::Lit(Literal::Float(3.0))),
+            ))
+
         },
         test_fraction: "1 / 2" => Expr::Explicit {
             expr: Node::BinOp {

@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use anyhow::{bail, Context, Result};
 use inkwell::values::BasicMetadataValueEnum;
 
@@ -9,13 +11,18 @@ use crate::lang::{
     parser::{BinaryOp, Expr, Literal, Node},
 };
 
-use super::CodeGen;
+use super::{CodeGen, FnContext};
 
 impl<'ctx> CodeGen<'ctx, '_> {
-    pub fn return_type(&self, expr: &Node, call_types: &[ValueType]) -> Result<ValueType> {
+    pub fn return_type(
+        &self,
+        expr: &Node,
+        call_types: &[ValueType<'ctx>],
+    ) -> Result<ValueType<'ctx>> {
         Ok(match expr {
-            Node::Lit(Literal::Float(_)) => ValueType::Number,
-            Node::Lit(Literal::List(_)) => ValueType::List(ListType::Number),
+            Node::Lit(Literal::Float(_)) => ValueType::Number(self.float_type),
+            Node::Lit(Literal::List(_)) => ValueType::List(ListType::Number(self.list_type)),
+            Node::Lit(Literal::Point(..)) => ValueType::Point(self.point_type),
             Node::Ident(ident) => {
                 match self
                     .exprs
@@ -26,7 +33,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                     expr => bail!("expr has wrong type, this should not happend, {expr:?}"),
                 }
             }
-            Node::BinOp { .. } => ValueType::Number,
+            Node::BinOp { .. } => ValueType::Number(self.float_type),
             Node::UnaryOp { val, .. } => {
                 let val_value = self.return_type(val, call_types)?;
 
@@ -49,17 +56,21 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 _ => bail!("expr has the wrong type"),
             },
             Node::FnArg { index } => call_types[*index],
-            _ => unimplemented!(),
+
+            Node::Comp { .. } => unreachable!("Comp node should not appear here"),
         })
     }
 
-    pub fn codegen_expr(&mut self, expr: &Node, call_args: &[Value<'ctx>]) -> Result<Value<'ctx>> {
+    pub fn codegen_expr(
+        &mut self,
+        expr: &Node,
+        fn_context: &FnContext<'ctx, '_>,
+    ) -> Result<Value<'ctx>> {
         Ok(match expr {
             Node::Lit(Literal::Float(value)) => {
                 let float_type = self.context.f64_type();
                 float_type.const_float(*value).into()
             }
-
             Node::Lit(Literal::List(elements)) => {
                 let int_type = self.context.i64_type();
                 let float_type = self.context.f64_type();
@@ -82,7 +93,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                     .into_pointer_value();
 
                 for (i, element) in elements.iter().enumerate() {
-                    let value = self.codegen_expr(element, call_args)?;
+                    let value = self.codegen_expr(element, fn_context)?;
 
                     let float_value = match value {
                         Value::Number(v) => v,
@@ -112,43 +123,51 @@ impl<'ctx> CodeGen<'ctx, '_> {
 
                 Value::List(List::Number(list_value))
             }
-            Node::Ident(ident) => self.get_var(ident)?,
+            Node::Lit(Literal::Point(x, y)) => {
+                let x = self.codegen_expr(x, fn_context)?;
+                let y = self.codegen_expr(y, fn_context)?;
+
+                let (x, y) = match (x, y) {
+                    (Value::Number(x), Value::Number(y)) => (x, y),
+                    _ => bail!("Point must have number types only"),
+                };
+                let mut point_value = self.point_type.get_undef();
+                point_value = self
+                    .builder
+                    .build_insert_value(point_value, x, 0, "x")?
+                    .into_struct_value();
+                point_value = self
+                    .builder
+                    .build_insert_value(point_value, y, 1, "y")?
+                    .into_struct_value();
+                Value::Point(point_value)
+            }
+            Node::Ident(ident) => self.get_var(ident, fn_context)?,
             Node::BinOp { lhs, op, rhs } => {
-                let lhs = self.codegen_expr(lhs, call_args)?;
-                let rhs = self.codegen_expr(rhs, call_args)?;
+                let lhs = self.codegen_expr(lhs, fn_context)?;
+                let rhs = self.codegen_expr(rhs, fn_context)?;
                 self.codegen_binary_op(lhs, *op, rhs)?
             }
             Node::UnaryOp { val, op } => {
-                let lhs = self.codegen_expr(val, call_args)?;
+                let lhs = self.codegen_expr(val, fn_context)?;
                 self.codegen_unary_op(lhs, *op)?
             }
             Node::FnCall { ident, args } => match self.exprs.get_expr(ident) {
-                Some(Expr::FnDef { .. }) => {
-                    let (types, args) = args
+                Some(Expr::FnDef { args: fn_args, .. }) => {
+                    let args = args
                         .iter()
                         .map(|arg| {
-                            let value = self.codegen_expr(arg, call_args)?;
-                            Ok((
-                                value.get_type(),
-                                BasicMetadataValueEnum::from(value.as_basic_value_enum()),
-                            ))
+                            let value = self.codegen_expr(arg, fn_context)?;
+                            Ok(value)
                         })
-                        .collect::<Result<(Vec<_>, Vec<_>)>>()?;
-                    let (function, ret_type) = self.get_fn(ident, &types)?;
+                        .collect::<Result<Vec<_>>>()?;
 
-                    Value::from_basic_value_enum(
-                        self.builder
-                            .build_call(function, &args, ident)?
-                            .try_as_basic_value()
-                            .expect_left("return type should not be void"),
-                        ret_type,
-                    )
-                    .expect("ret type does not match expected ret type")
+                    self.codegen_fn_call(ident, &args)?
                 }
                 Some(Expr::VarDef { .. }) => {
                     if args.len() == 1 {
-                        let lhs = self.get_var(ident)?;
-                        let rhs = self.codegen_expr(&args[0], call_args)?;
+                        let lhs = self.get_var(ident, fn_context)?;
+                        let rhs = self.codegen_expr(&args[0], fn_context)?;
                         self.codegen_binary_op(lhs, BinaryOp::Mul, rhs)?
                     } else {
                         bail!("{ident} is not a function")
@@ -157,8 +176,8 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 None => bail!("unknown ident {ident}"),
                 _ => unreachable!("idents should be VarDef or FnDef only"),
             },
-            Node::FnArg { index } => call_args[*index],
-            _ => unimplemented!(),
+            Node::FnArg { index } => fn_context.args[*index],
+            Node::Comp { .. } => unreachable!("comp should not apear here"),
         })
     }
 }
