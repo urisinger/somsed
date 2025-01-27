@@ -121,7 +121,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
                         range = new_range;
                         mid = new_mid;
                         compiled_exprs.compiled.keys().for_each(|id| {
-                            compute_requests.insert(id.clone());
+                            compute_requests.insert(*id);
                         });
                     }
                 }
@@ -181,7 +181,7 @@ pub fn points_explicit(
 ) -> Result<Vec<Vector>> {
     let mut points = Vec::new();
 
-    let min_x = (mid.x - range / 2.0) as f32;
+    let min_x = mid.x - range / 2.0;
 
     let min = Vector::new(min_x, unsafe { function.call(min_x as f64) } as f32);
 

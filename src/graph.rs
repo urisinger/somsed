@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::Div};
 
 use desmos_compiler::{
     expressions::ExpressionId,
-    lang::{self, value::Value},
+    lang::{value::Value},
 };
 use iced::{
     event::Status,

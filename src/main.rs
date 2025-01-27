@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, BinaryHeap, HashMap};
+use std::collections::{BTreeSet, HashMap};
 
 use flume::Sender;
 

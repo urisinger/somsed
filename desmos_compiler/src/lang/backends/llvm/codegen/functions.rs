@@ -5,7 +5,8 @@ use crate::lang::backends::llvm::types::CompilerType;
 pub const IMPORTED_FUNCTIONS: [(&str, CompilerType, &[CompilerType], *const ()); 0] = [];
 
 /// Allocate memory for `size` bytes and return a pointer to the allocated memory.
-pub fn malloc(size: usize) -> *mut u8 {
+
+pub unsafe extern "C" fn malloc(size: usize) -> *mut u8 {
     if size == 0 {
         return std::ptr::null_mut(); // Return null if zero bytes are requested
     }
@@ -23,7 +24,7 @@ pub fn malloc(size: usize) -> *mut u8 {
 }
 
 /// Deallocate memory for the given pointer and size.
-pub fn free(ptr: *mut u8, size: usize) {
+pub unsafe extern "C" fn free(ptr: *mut u8, size: usize) {
     if !ptr.is_null() {
         // Create a layout for the size to free
         let layout = Layout::from_size_align(size, align_of::<f64>()).expect("Invalid layout");

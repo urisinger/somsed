@@ -78,7 +78,7 @@ impl<'ctx> ExplicitJitFn<'ctx> {
     }
 }
 
-impl<'ctx> ExplicitJitFn<'ctx> {
+impl ExplicitJitFn<'_> {
     /// Calls the JIT-compiled function and returns a `JitValue` as the result.
     ///
     /// # Safety
@@ -92,7 +92,7 @@ impl<'ctx> ExplicitJitFn<'ctx> {
     }
 }
 
-impl<'ctx> ExplicitJitListFn<'ctx> {
+impl ExplicitJitListFn<'_> {
     /// Calls the JIT-compiled list function and returns a `JitValue::List` result.
     ///
     /// # Safety
@@ -129,7 +129,7 @@ impl<'ctx> ImplicitJitFn<'ctx> {
     }
 }
 
-impl<'ctx> ImplicitJitFn<'ctx> {
+impl ImplicitJitFn<'_> {
     /// Calls the JIT-compiled function and returns a `JitValue` as the result.
     ///
     /// # Safety
@@ -143,7 +143,7 @@ impl<'ctx> ImplicitJitFn<'ctx> {
     }
 }
 
-impl<'ctx> ImplicitJitListFn<'ctx> {
+impl ImplicitJitListFn<'_> {
     /// Calls the JIT-compiled list function and returns a `JitValue::List` result.
     ///
     /// # Safety
