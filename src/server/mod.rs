@@ -1,12 +1,14 @@
 use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Result};
-use desmos_compiler::lang::backends::llvm::jit::{ExplicitFn, ExplicitJitFn, JitValue};
+use desmos_compiler::lang;
+use desmos_compiler::lang::backends::llvm::jit::{ExplicitFn, ExplicitJitFn};
 use desmos_compiler::lang::backends::llvm::CompiledExpr;
 use desmos_compiler::lang::backends::llvm::{codegen::compile_all_exprs, CompiledExprs};
 
 use flume::r#async::RecvStream;
 use iced::Vector;
-use std::collections::{HashMap, HashSet};
+use lang::value::Value;
+use std::collections::HashSet;
 use std::thread;
 
 // Define the server requests
@@ -26,10 +28,17 @@ pub enum PointsServerRequest {
 }
 
 #[derive(Debug, Clone)]
+pub enum ComputationResult {
+    Constant(Value),
+    Explicit(Vec<Vector>),
+    Implicit(Vec<Vector>),
+}
+
+#[derive(Debug, Clone)]
 pub enum Event {
     Computed {
         id: ExpressionId,
-        points: Vec<Vector>,
+        points: ComputationResult,
     },
     Success {
         id: ExpressionId,
@@ -126,10 +135,15 @@ pub fn points_server() -> RecvStream<'static, Event> {
                 let compiled = compiled_exprs.compiled.get(&id);
                 let points_result = match compiled {
                     Some(CompiledExpr::Explicit { lhs }) => match lhs {
-                        ExplicitJitFn::Number(lhs) => points(lhs, range, mid, 9, 14),
+                        ExplicitJitFn::Number(lhs) => {
+                            points_explicit(lhs, range, mid, 9, 14).map(ComputationResult::Explicit)
+                        }
                         ExplicitJitFn::Point(_) => todo!(),
                         ExplicitJitFn::List(_) => todo!(),
                     },
+                    Some(CompiledExpr::Constant { value }) => {
+                        value.clone().try_into().map(ComputationResult::Constant)
+                    }
                     Some(_) => Err(anyhow!("Only explicit expressions are supported")),
                     None => Err(anyhow!("Failed to retrieve compiled expression")),
                 };
@@ -158,7 +172,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
     event_rx.into_stream()
 }
 
-pub fn points(
+pub fn points_explicit(
     function: &ExplicitFn<f64>,
     range: f32,
     mid: Vector,

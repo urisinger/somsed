@@ -6,7 +6,10 @@ mod tests {
 
     use std::collections::HashMap;
 
-    use crate::lang::{backends::llvm::jit::ListLayout, parser::Expr};
+    use crate::{
+        expressions::ExpressionId,
+        lang::{backends::llvm::jit::ListLayout, parser::Expr},
+    };
 
     use super::expressions::Expressions;
     use super::lang::backends::llvm::CompiledExpr;
@@ -31,7 +34,8 @@ mod tests {
                     // Set up the context and expressions
                     let context = Context::create();
                     let mut expressions = Expressions::new();
-                    let id = expressions.add_expr($input)?;
+                    let id = ExpressionId(0);
+                    expressions.insert_expr(id, $input)?;
                     // Compile the expressions
                     let compiled = compile_all_exprs(&context, &expressions);
 
@@ -57,6 +61,11 @@ mod tests {
                                 ExplicitJitFn::List(_) => {
                                     panic!("List results are not supported in this test for '{}'", stringify!($name));
                                 }
+
+                                ExplicitJitFn::Point(_) => {
+                                    panic!("Point results are not supported in this test for'{}'", stringify!($name));
+                                }
+
                             };
 
                             assert_eq!(result, $expected, "Test '{}' failed: expected {}, got {}", stringify!($name), $expected, result);
@@ -107,10 +116,12 @@ mod tests {
                 let mut expressions = Expressions::new();
                 let mut expr_ids = HashMap::new();
 
-
+                let mut max_id = 0;
                 for (name, input, _) in &test_cases {
-                    let id = expressions.add_expr(input)?;
+                    let id = ExpressionId(max_id);
+                    expressions.insert_expr(id, input)?;
                     expr_ids.insert(*name, id);
+                    max_id += 1;
                 }
 
                 let compiled = compile_all_exprs(&context, &expressions);
@@ -121,7 +132,7 @@ mod tests {
 
                 for (name, _, inputs) in &test_cases {
                     let id = expr_ids.get(name).expect("Expression ID not found");
-                    let expr = expressions.exprs.get(id).expect("Expression not found");
+                    let expr = &expressions.exprs.get(id).expect("Expression not found").expr;
 
                     if let Expr::FnDef { .. } = expr {
                         continue;
@@ -181,6 +192,18 @@ mod tests {
                                     let rhs_result = unsafe { rhs_fn.call(x, y) };
                                     compare_number_with_list(rhs_result, &lhs_list, name);
                                 }
+
+                                (ImplicitJitFn::Point(lhs_fn), ImplicitJitFn::Point(rhs_fn)) => {
+
+                                    let lhs_result = unsafe { lhs_fn.call(x, y) };
+                                    let rhs_result = unsafe { rhs_fn.call(x, y) };
+                                    assert_eq!(
+                                        lhs_result, rhs_result,
+                                        "Test '{}' failed: lhs_result ({:?}) != rhs_result ({:?})",
+                                        name, lhs_result, rhs_result
+                                    );
+                                }
+                                _ => panic!("Point cannot be compared with non points")
                             }
                         }
                         _ => {

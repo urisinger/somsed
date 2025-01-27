@@ -2,14 +2,14 @@ use inkwell::values::{
     AnyValue, AnyValueEnum, BasicValue, BasicValueEnum, FloatValue, StructValue,
 };
 
-use super::types::{ListType, ValueType};
+use super::types::{CompilerType, ListType};
 
 #[derive(Debug, Clone, Copy)]
-pub enum List<'ctx> {
+pub enum CompilerList<'ctx> {
     Number(StructValue<'ctx>),
 }
 
-impl<'ctx> List<'ctx> {
+impl<'ctx> CompilerList<'ctx> {
     pub fn as_basic_value_enum(self) -> BasicValueEnum<'ctx> {
         match self {
             Self::Number(value) => value.as_basic_value_enum(),
@@ -24,7 +24,7 @@ impl<'ctx> List<'ctx> {
 
     pub fn from_basic_value_enum(value: BasicValueEnum<'ctx>, ty: ListType) -> Option<Self> {
         match ty {
-            ListType::Number(_) => Some(List::Number(value.try_into().ok()?)),
+            ListType::Number(_) => Some(CompilerList::Number(value.try_into().ok()?)),
         }
     }
 
@@ -36,55 +36,55 @@ impl<'ctx> List<'ctx> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Value<'ctx> {
+pub enum CompilerValue<'ctx> {
     Number(FloatValue<'ctx>),
     Point(StructValue<'ctx>),
-    List(List<'ctx>),
+    List(CompilerList<'ctx>),
 }
 
-impl<'ctx> Value<'ctx> {
+impl<'ctx> CompilerValue<'ctx> {
     pub fn as_basic_value_enum(self) -> BasicValueEnum<'ctx> {
         match self {
-            Value::Number(number) => number.as_basic_value_enum(),
-            Value::Point(p) => p.as_basic_value_enum(),
-            Value::List(arr) => arr.as_basic_value_enum(),
+            CompilerValue::Number(number) => number.as_basic_value_enum(),
+            CompilerValue::Point(p) => p.as_basic_value_enum(),
+            CompilerValue::List(arr) => arr.as_basic_value_enum(),
         }
     }
 
     pub fn as_any_value_enum(self) -> AnyValueEnum<'ctx> {
         match self {
-            Value::Number(number) => number.as_any_value_enum(),
-            Value::Point(p) => p.as_any_value_enum(),
-            Value::List(arr) => arr.as_any_value_enum(),
+            CompilerValue::Number(number) => number.as_any_value_enum(),
+            CompilerValue::Point(p) => p.as_any_value_enum(),
+            CompilerValue::List(arr) => arr.as_any_value_enum(),
         }
     }
 
-    pub fn get_type(&self) -> ValueType<'ctx> {
+    pub fn get_type(&self) -> CompilerType<'ctx> {
         match self {
-            Value::Number(num) => ValueType::Number(num.get_type()),
-            Value::Point(p) => ValueType::Point(p.get_type()),
-            Value::List(arr) => ValueType::List(arr.get_type()),
+            CompilerValue::Number(num) => CompilerType::Number(num.get_type()),
+            CompilerValue::Point(p) => CompilerType::Point(p.get_type()),
+            CompilerValue::List(arr) => CompilerType::List(arr.get_type()),
         }
     }
 
-    pub fn from_basic_value_enum(value: BasicValueEnum<'ctx>, ty: ValueType) -> Option<Self> {
+    pub fn from_basic_value_enum(value: BasicValueEnum<'ctx>, ty: CompilerType) -> Option<Self> {
         match ty {
-            ValueType::Number(_) => match value {
-                BasicValueEnum::FloatValue(float_value) => Some(Value::Number(float_value)),
+            CompilerType::Number(_) => match value {
+                BasicValueEnum::FloatValue(float_value) => Some(CompilerValue::Number(float_value)),
                 _ => None,
             },
-            ValueType::Point(_) => match value {
-                BasicValueEnum::StructValue(p) => Some(Value::Point(p)),
+            CompilerType::Point(_) => match value {
+                BasicValueEnum::StructValue(p) => Some(CompilerValue::Point(p)),
                 _ => None,
             },
-            ValueType::List(arr_type) => {
-                List::from_basic_value_enum(value, arr_type).map(Value::List)
+            CompilerType::List(arr_type) => {
+                CompilerList::from_basic_value_enum(value, arr_type).map(CompilerValue::List)
             }
         }
     }
 }
 
-impl<'ctx> From<FloatValue<'ctx>> for Value<'ctx> {
+impl<'ctx> From<FloatValue<'ctx>> for CompilerValue<'ctx> {
     fn from(value: FloatValue<'ctx>) -> Self {
         Self::Number(value)
     }

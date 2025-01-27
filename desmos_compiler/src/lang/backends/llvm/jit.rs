@@ -1,7 +1,7 @@
 use anyhow::Result;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 
-use super::types::{ListType, ValueType};
+use super::types::{CompilerType, ListType};
 
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -11,7 +11,7 @@ pub struct ListLayout {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct PointLayout {
     pub x: f64,
     pub y: f64,
@@ -57,18 +57,18 @@ impl<'ctx> ExplicitJitFn<'ctx> {
     pub(crate) unsafe fn from_function(
         function_name: &str,
         execution_engine: &ExecutionEngine<'ctx>,
-        return_type: ValueType,
+        return_type: CompilerType,
     ) -> Result<Self> {
         match return_type {
-            ValueType::Number(_) => {
+            CompilerType::Number(_) => {
                 let jit_function = execution_engine.get_function(function_name)?;
                 Ok(ExplicitJitFn::Number(jit_function))
             }
-            ValueType::Point(_) => {
+            CompilerType::Point(_) => {
                 let jit_function = execution_engine.get_function(function_name)?;
                 Ok(ExplicitJitFn::Point(jit_function))
             }
-            ValueType::List(list_type) => match list_type {
+            CompilerType::List(list_type) => match list_type {
                 ListType::Number(_) => {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ExplicitJitFn::List(ExplicitJitListFn::Number(jit_function)))
@@ -108,18 +108,18 @@ impl<'ctx> ImplicitJitFn<'ctx> {
     pub(crate) unsafe fn from_function(
         function_name: &str,
         execution_engine: &ExecutionEngine<'ctx>,
-        return_type: ValueType,
+        return_type: CompilerType,
     ) -> Result<Self> {
         match return_type {
-            ValueType::Number(_) => {
+            CompilerType::Number(_) => {
                 let jit_function = execution_engine.get_function(function_name)?;
                 Ok(ImplicitJitFn::Number(jit_function))
             }
-            ValueType::Point(_) => {
+            CompilerType::Point(_) => {
                 let jit_function = execution_engine.get_function(function_name)?;
                 Ok(ImplicitJitFn::Point(jit_function))
             }
-            ValueType::List(list_type) => match list_type {
+            CompilerType::List(list_type) => match list_type {
                 ListType::Number(_) => {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ImplicitJitFn::List(ImplicitJitListFn::Number(jit_function)))

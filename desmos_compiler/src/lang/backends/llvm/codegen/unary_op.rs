@@ -4,16 +4,22 @@ use inkwell::{
     values::{AnyValue, FloatValue},
 };
 
-use crate::lang::{backends::llvm::value::Value, parser::UnaryOp};
+use crate::lang::{backends::llvm::value::CompilerValue, parser::UnaryOp};
 
 use super::CodeGen;
 
 impl<'ctx> CodeGen<'ctx, '_> {
-    pub(crate) fn codegen_unary_op(&self, lhs: Value<'ctx>, op: UnaryOp) -> Result<Value<'ctx>> {
+    pub(crate) fn codegen_unary_op(
+        &self,
+        lhs: CompilerValue<'ctx>,
+        op: UnaryOp,
+    ) -> Result<CompilerValue<'ctx>> {
         Ok(match lhs {
-            Value::Number(lhs) => Value::Number(self.codegen_unary_number_op(lhs, op)?),
-            Value::Point(_) => bail!("Unary ops are not implemented for Points"),
-            Value::List(_) => bail!("Unary operations are not defined for lists"),
+            CompilerValue::Number(lhs) => {
+                CompilerValue::Number(self.codegen_unary_number_op(lhs, op)?)
+            }
+            CompilerValue::Point(_) => bail!("Unary ops are not implemented for Points"),
+            CompilerValue::List(_) => bail!("Unary operations are not defined for lists"),
         })
     }
 

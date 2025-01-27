@@ -1,6 +1,9 @@
 use std::{collections::HashMap, ops::Div};
 
-use desmos_compiler::expressions::ExpressionId;
+use desmos_compiler::{
+    expressions::ExpressionId,
+    lang::{self, value::Value},
+};
 use iced::{
     event::Status,
     mouse::{self, Cursor},
@@ -8,19 +11,19 @@ use iced::{
     Color, Point, Size, Theme, Vector,
 };
 
-use crate::Message;
+use crate::{server::ComputationResult, Message};
 
 pub struct GraphRenderer<'a> {
     range: f32,
     mid: Vector,
 
-    points: &'a HashMap<ExpressionId, Vec<Vector>>,
+    points: &'a HashMap<ExpressionId, ComputationResult>,
     graph_caches: &'a HashMap<ExpressionId, Cache>,
 }
 
 impl<'a> GraphRenderer<'a> {
     pub fn new(
-        points: &'a HashMap<ExpressionId, Vec<Vector>>,
+        points: &'a HashMap<ExpressionId, ComputationResult>,
         graph_caches: &'a HashMap<ExpressionId, Cache>,
         range: f32,
         mid: Vector,
@@ -70,23 +73,44 @@ impl Program<Message> for GraphRenderer<'_> {
         let range = Vector::new(self.range, self.range * bounds.height / bounds.width);
         // 1) Draw your graphs as before
         let graphs = self.points.iter().map(|(id, points)| {
-            self.graph_caches[id].draw(renderer, bounds.size(), |frame| {
-                let path = Path::new(|builder| {
-                    for point in points {
-                        let point = translate_point(*point, self.mid, range, bounds.size());
+            self.graph_caches[id].draw(renderer, bounds.size(), |frame| match points {
+                ComputationResult::Explicit(points) => {
+                    let path = Path::new(|builder| {
+                        for point in points {
+                            let point = translate_point(*point, self.mid, range, bounds.size());
 
-                        if !point.x.is_finite() || !point.y.is_finite() {
-                            continue;
+                            if !point.x.is_finite() || !point.y.is_finite() {
+                                continue;
+                            }
+                            builder.line_to(point);
                         }
-                        builder.line_to(point);
+                    });
+                    frame.stroke(
+                        &path,
+                        Stroke::default()
+                            .with_width(5.0)
+                            .with_color(Color::from_rgb8(45, 112, 179)),
+                    );
+                }
+                ComputationResult::Constant(c) => match c {
+                    Value::Number(_) => {}
+                    Value::Point { x, y } => {
+                        frame.fill(
+                            &Path::circle(
+                                translate_point(
+                                    Vector::new(*x as f32, *y as f32),
+                                    self.mid,
+                                    range,
+                                    bounds.size(),
+                                ),
+                                5.0,
+                            ),
+                            Color::from_rgb8(45, 112, 179),
+                        );
                     }
-                });
-                frame.stroke(
-                    &path,
-                    Stroke::default()
-                        .with_width(5.0)
-                        .with_color(Color::from_rgb8(45, 112, 179)),
-                );
+                    Value::List(_) => {}
+                },
+                ComputationResult::Implicit(_) => eprintln!("implicit not yet implemented"),
             })
         });
 
@@ -94,12 +118,12 @@ impl Program<Message> for GraphRenderer<'_> {
         let mut grid = Frame::new(renderer, bounds.size());
 
         let pow_10 = 10.0f32.powf(range.y.div(2.0).log10().floor());
-        let step_size = if 5.0 * pow_10 <= range.y / 2.0 {
-            5.0 * pow_10
+        let (step_size, substep_size) = if 5.0 * pow_10 <= range.y / 2.0 {
+            (5.0 * pow_10, pow_10)
         } else if 2.0 * pow_10 <= range.y / 2.0 {
-            2.0 * pow_10
+            (2.0 * pow_10, pow_10 / 2.0)
         } else {
-            pow_10
+            (pow_10, pow_10 / 5.0)
         };
 
         draw_grid(
@@ -116,7 +140,7 @@ impl Program<Message> for GraphRenderer<'_> {
         draw_grid(
             &mut grid,
             self.mid,
-            step_size / 5.0,
+            substep_size,
             range,
             bounds.size(),
             Stroke::default()

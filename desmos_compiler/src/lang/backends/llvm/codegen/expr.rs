@@ -5,8 +5,8 @@ use inkwell::values::BasicMetadataValueEnum;
 
 use crate::lang::{
     backends::llvm::{
-        types::{ListType, ValueType},
-        value::{List, Value},
+        types::{CompilerType, ListType},
+        value::{CompilerList, CompilerValue},
     },
     parser::{BinaryOp, Expr, Literal, Node},
 };
@@ -17,12 +17,12 @@ impl<'ctx> CodeGen<'ctx, '_> {
     pub fn return_type(
         &self,
         expr: &Node,
-        call_types: &[ValueType<'ctx>],
-    ) -> Result<ValueType<'ctx>> {
+        call_types: &[CompilerType<'ctx>],
+    ) -> Result<CompilerType<'ctx>> {
         Ok(match expr {
-            Node::Lit(Literal::Float(_)) => ValueType::Number(self.float_type),
-            Node::Lit(Literal::List(_)) => ValueType::List(ListType::Number(self.list_type)),
-            Node::Lit(Literal::Point(..)) => ValueType::Point(self.point_type),
+            Node::Lit(Literal::Float(_)) => CompilerType::Number(self.float_type),
+            Node::Lit(Literal::List(_)) => CompilerType::List(ListType::Number(self.list_type)),
+            Node::Lit(Literal::Point(..)) => CompilerType::Point(self.point_type),
             Node::Ident(ident) => {
                 match self
                     .exprs
@@ -33,7 +33,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                     expr => bail!("expr has wrong type, this should not happend, {expr:?}"),
                 }
             }
-            Node::BinOp { .. } => ValueType::Number(self.float_type),
+            Node::BinOp { .. } => CompilerType::Number(self.float_type),
             Node::UnaryOp { val, .. } => {
                 let val_value = self.return_type(val, call_types)?;
 
@@ -65,7 +65,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
         &mut self,
         expr: &Node,
         fn_context: &FnContext<'ctx, '_>,
-    ) -> Result<Value<'ctx>> {
+    ) -> Result<CompilerValue<'ctx>> {
         Ok(match expr {
             Node::Lit(Literal::Float(value)) => {
                 let float_type = self.context.f64_type();
@@ -96,7 +96,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                     let value = self.codegen_expr(element, fn_context)?;
 
                     let float_value = match value {
-                        Value::Number(v) => v,
+                        CompilerValue::Number(v) => v,
                         _ => bail!("List elements must be numbers"),
                     };
 
@@ -121,14 +121,14 @@ impl<'ctx> CodeGen<'ctx, '_> {
                     .build_insert_value(list_value, pointer, 1, "list_ptr")?
                     .into_struct_value();
 
-                Value::List(List::Number(list_value))
+                CompilerValue::List(CompilerList::Number(list_value))
             }
             Node::Lit(Literal::Point(x, y)) => {
                 let x = self.codegen_expr(x, fn_context)?;
                 let y = self.codegen_expr(y, fn_context)?;
 
                 let (x, y) = match (x, y) {
-                    (Value::Number(x), Value::Number(y)) => (x, y),
+                    (CompilerValue::Number(x), CompilerValue::Number(y)) => (x, y),
                     _ => bail!("Point must have number types only"),
                 };
                 let mut point_value = self.point_type.get_undef();
@@ -140,7 +140,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                     .builder
                     .build_insert_value(point_value, y, 1, "y")?
                     .into_struct_value();
-                Value::Point(point_value)
+                CompilerValue::Point(point_value)
             }
             Node::Ident(ident) => self.get_var(ident, fn_context)?,
             Node::BinOp { lhs, op, rhs } => {

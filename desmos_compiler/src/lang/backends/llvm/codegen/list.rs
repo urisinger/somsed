@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use inkwell::values::{BasicValue, FloatValue, IntValue, PointerValue};
 
-use crate::lang::backends::llvm::value::{List, Value};
+use crate::lang::backends::llvm::value::{CompilerList, CompilerValue};
 
 use super::CodeGen;
 
@@ -32,9 +32,9 @@ impl<'ctx> CodeGen<'ctx, '_> {
         Ok(raw_ptr)
     }
 
-    pub fn codegen_free(&self, list: List<'ctx>) -> Result<()> {
+    pub fn codegen_free(&self, list: CompilerList<'ctx>) -> Result<()> {
         match list {
-            List::Number(struct_value) => {
+            CompilerList::Number(struct_value) => {
                 // Assuming the pointer is stored as the first field of the struct
                 let pointer_field_index = 1; // Change this if the pointer is at a different index
                 let pointer: PointerValue<'ctx> = struct_value
@@ -76,7 +76,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
         }
     }
 
-    pub fn codegen_list_new(&self, size: IntValue<'ctx>) -> Result<Value<'ctx>> {
+    pub fn codegen_list_new(&self, size: IntValue<'ctx>) -> Result<CompilerValue<'ctx>> {
         // Allocate memory for the list
         let pointer = self.codegen_allocate(size)?;
 
@@ -101,17 +101,21 @@ impl<'ctx> CodeGen<'ctx, '_> {
             .into_struct_value();
 
         // Return the new list as Value::List
-        Ok(Value::List(List::Number(list_value)))
+        Ok(CompilerValue::List(CompilerList::Number(list_value)))
     }
 
-    pub fn codegen_list_loop<F>(&self, lhs: List<'ctx>, func: F) -> Result<Value<'ctx>>
+    pub fn codegen_list_loop<F>(
+        &self,
+        lhs: CompilerList<'ctx>,
+        func: F,
+    ) -> Result<CompilerValue<'ctx>>
     where
         F: FnOnce(FloatValue<'ctx>) -> Result<FloatValue<'ctx>>,
     {
         let size_field_index = 0;
         let pointer_field_index = 1;
         match lhs {
-            List::Number(lhs) => {
+            CompilerList::Number(lhs) => {
                 // Get the size of the list
                 let size_value = lhs
                     .get_field_at_index(size_field_index)
@@ -206,7 +210,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 // End block
                 self.builder.position_at_end(end_block);
                 // Return the modified list
-                Ok(Value::List(List::Number(lhs)))
+                Ok(CompilerValue::List(CompilerList::Number(lhs)))
             }
         }
     }

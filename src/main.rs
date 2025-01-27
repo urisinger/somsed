@@ -14,7 +14,7 @@ use iced::{
     },
     Length, Subscription, Task, Vector,
 };
-use server::{Event, PointsServerRequest};
+use server::{ComputationResult, Event, PointsServerRequest};
 
 mod components;
 mod graph;
@@ -55,7 +55,7 @@ struct Somsed {
 
     graph_caches: HashMap<ExpressionId, Cache>,
     expressions: HashMap<ExpressionId, String>,
-    points: HashMap<ExpressionId, Vec<Vector>>,
+    points: HashMap<ExpressionId, ComputationResult>,
     errors: HashMap<ExpressionId, String>,
 
     // Fields used for rendering state

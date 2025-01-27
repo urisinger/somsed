@@ -1,8 +1,8 @@
 use std::alloc::{alloc, dealloc, Layout};
 
-use crate::lang::backends::llvm::types::ValueType;
+use crate::lang::backends::llvm::types::CompilerType;
 
-pub const IMPORTED_FUNCTIONS: [(&str, ValueType, &[ValueType], *const ()); 0] = [];
+pub const IMPORTED_FUNCTIONS: [(&str, CompilerType, &[CompilerType], *const ()); 0] = [];
 
 /// Allocate memory for `size` bytes and return a pointer to the allocated memory.
 pub fn malloc(size: usize) -> *mut u8 {
@@ -11,7 +11,7 @@ pub fn malloc(size: usize) -> *mut u8 {
     }
 
     // Create a layout for the requested size
-    let layout = Layout::from_size_align(size, align_of::<u8>()).expect("Invalid layout");
+    let layout = Layout::from_size_align(size, align_of::<f64>()).expect("Invalid layout");
     unsafe {
         // Allocate memory and return the pointer
         let ptr = alloc(layout);
@@ -26,7 +26,7 @@ pub fn malloc(size: usize) -> *mut u8 {
 pub fn free(ptr: *mut u8, size: usize) {
     if !ptr.is_null() {
         // Create a layout for the size to free
-        let layout = Layout::from_size_align(size, align_of::<u8>()).expect("Invalid layout");
+        let layout = Layout::from_size_align(size, align_of::<f64>()).expect("Invalid layout");
         unsafe {
             // Deallocate memory
             dealloc(ptr, layout);

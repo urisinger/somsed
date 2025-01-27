@@ -4,24 +4,24 @@ use inkwell::{
     values::{AnyValue, FloatValue},
 };
 
-use crate::lang::{backends::llvm::value::Value, parser::BinaryOp};
+use crate::lang::{backends::llvm::value::CompilerValue, parser::BinaryOp};
 
 use super::CodeGen;
 
 impl<'ctx> CodeGen<'ctx, '_> {
     pub fn codegen_binary_op(
         &self,
-        lhs: Value<'ctx>,
+        lhs: CompilerValue<'ctx>,
         op: BinaryOp,
-        rhs: Value<'ctx>,
-    ) -> Result<Value<'ctx>> {
+        rhs: CompilerValue<'ctx>,
+    ) -> Result<CompilerValue<'ctx>> {
         match (lhs, rhs) {
-            (Value::List(lhs), Value::Number(rhs)) => {
+            (CompilerValue::List(lhs), CompilerValue::Number(rhs)) => {
                 self.codegen_list_loop(lhs, |lhs| self.codegen_binary_number_op(lhs, op, rhs))
             }
-            (Value::Number(lhs), Value::Number(rhs)) => {
-                Ok(Value::Number(self.codegen_binary_number_op(lhs, op, rhs)?))
-            }
+            (CompilerValue::Number(lhs), CompilerValue::Number(rhs)) => Ok(CompilerValue::Number(
+                self.codegen_binary_number_op(lhs, op, rhs)?,
+            )),
             (_, _) => Err(anyhow!(
                 "typeerror, expected (List, Number) or (Number, Number)"
             )),

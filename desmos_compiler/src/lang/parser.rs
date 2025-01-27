@@ -68,7 +68,7 @@ pub enum Expr {
         rhs: Node,
     },
     Explicit {
-        expr: Node,
+        lhs: Node,
     },
     VarDef {
         ident: String,
@@ -96,7 +96,7 @@ impl Expr {
         let mut idents = HashSet::new();
 
         match self {
-            Expr::Explicit { expr } => expr.used_idents(&mut idents),
+            Expr::Explicit { lhs: expr } => expr.used_idents(&mut idents),
             Expr::Implicit { lhs, rhs, .. } => {
                 lhs.used_idents(&mut idents);
                 rhs.used_idents(&mut idents);
@@ -109,7 +109,7 @@ impl Expr {
 
     fn replace_scope(&mut self) {
         match self {
-            Expr::Explicit { expr } => {
+            Expr::Explicit { lhs: expr } => {
                 let mut scope = HashMap::with_capacity(1);
 
                 scope.insert("x", 0);
@@ -182,7 +182,7 @@ impl Expr {
                 },
             }
         } else {
-            Self::Explicit { expr: node }
+            Self::Explicit { lhs: node }
         }
     }
 }
@@ -333,28 +333,19 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
                 Rule::fn_call => {
                     let mut pairs = primary.into_inner();
                     let func_name = pairs.next().unwrap();
-                    match func_name.as_rule() {
-                        Rule::ident => {
-                            let args = pairs
-                                .map(|expr| parse_expr(expr.into_inner()))
-                                .collect::<Result<Vec<_>>>()?;
-                            let ident = func_name.as_str().to_string();
+                    let args = pairs
+                        .map(|expr| parse_expr(expr.into_inner()))
+                        .collect::<Result<Vec<_>>>()?;
+                    let ident = func_name.as_str().to_string();
 
-                            Node::FnCall { args, ident }
-                        }
-                        _ => {
-                            if pairs.len() == 0 {
-                                parse_expr(func_name.into_inner())?
-                            } else if pairs.len() == 1 {
-                                let x = Box::new(parse_expr(func_name.into_inner())?);
-                                let y = Box::new(parse_expr(pairs.next().unwrap().into_inner())?);
+                    Node::FnCall { args, ident }
+                }
+                Rule::point => {
+                    let mut pairs = primary.into_inner();
+                    let x = Box::new(parse_expr(pairs.next().unwrap().into_inner())?);
+                    let y = Box::new(parse_expr(pairs.next().unwrap().into_inner())?);
 
-                                Node::Lit(Literal::Point(x, y))
-                            } else {
-                                bail!("Points may only have two coordinates")
-                            }
-                        }
-                    }
+                    Node::Lit(Literal::Point(x, y))
                 }
                 Rule::list => Node::Lit(Literal::List(
                     primary
@@ -485,24 +476,24 @@ mod tests {
 
     generate_tests! {
         test_literal_float: "42.0" => Expr::Explicit {
-            expr: Node::Lit(Literal::Float(42.0))
+            lhs: Node::Lit(Literal::Float(42.0))
         },
         test_literal_integer_as_float: "42" => Expr::Explicit {
-            expr: Node::Lit(Literal::Float(42.0))
+            lhs: Node::Lit(Literal::Float(42.0))
         },
         test_variable_definition: "a = 10" => Expr::VarDef {
             ident: "a".to_string(),
             rhs: Node::Lit(Literal::Float(10.0)),
         },
         test_simple_addition: "3 + 4" => Expr::Explicit {
-            expr: Node::BinOp {
+            lhs: Node::BinOp {
                 lhs: Box::new(Node::Lit(Literal::Float(3.0))),
                 op: BinaryOp::Add,
                 rhs: Box::new(Node::Lit(Literal::Float(4.0))),
             }
         },
         test_nested_expression: "(1 + 2) * 3" => Expr::Explicit {
-            expr: Node::BinOp {
+            lhs: Node::BinOp {
                 lhs: Box::new(Node::BinOp {
                     lhs: Box::new(Node::Lit(Literal::Float(1.0))),
                     op: BinaryOp::Add,
@@ -513,7 +504,7 @@ mod tests {
             }
         },
         test_function_call: "\\sin(0)" => Expr::Explicit {
-            expr: Node::UnaryOp {
+            lhs: Node::UnaryOp {
                 op: UnaryOp::Sin,
                 val: Box::new(Node::Lit(Literal::Float(0.0)))
             }
@@ -542,40 +533,40 @@ mod tests {
             }
         },
         test_tuple: "(1, 2)" => Expr::Explicit {
-            expr: Node::Lit(Literal::Point(
+            lhs: Node::Lit(Literal::Point(
+                Box::new(Node::Lit(Literal::Float(1.0))),
                 Box::new(Node::Lit(Literal::Float(2.0))),
-                Box::new(Node::Lit(Literal::Float(3.0))),
             ))
 
         },
         test_fraction: "1 / 2" => Expr::Explicit {
-            expr: Node::BinOp {
+            lhs: Node::BinOp {
                 lhs: Box::new(Node::Lit(Literal::Float(1.0))),
                 op: BinaryOp::Div,
                 rhs: Box::new(Node::Lit(Literal::Float(2.0))),
             }
         },
         test_exponentiation: "2 ^ {3}" => Expr::Explicit {
-            expr: Node::BinOp {
+            lhs: Node::BinOp {
                 lhs: Box::new(Node::Lit(Literal::Float(2.0))),
                 op: BinaryOp::Pow,
                 rhs: Box::new(Node::Lit(Literal::Float(3.0))),
             }
         },
         test_unary_negation: "-5" => Expr::Explicit {
-            expr: Node::UnaryOp {
+            lhs: Node::UnaryOp {
                 val: Box::new(Node::Lit(Literal::Float(5.0))),
                 op: UnaryOp::Neg,
             }
         },
         test_unary_function: "\\sqrt(9)" => Expr::Explicit {
-            expr: Node::UnaryOp  {
+            lhs: Node::UnaryOp  {
                 op: UnaryOp::Sqrt,
                 val: Box::new(Node::Lit(Literal::Float(9.0)))
             }
         },
         test_complex_nested_expression: "\\sqrt((3 + 4) * 2)" => Expr::Explicit {
-            expr: Node::UnaryOp {
+            lhs: Node::UnaryOp {
                 op: UnaryOp::Sqrt,
                 val: Box::new(Node::BinOp {
                     lhs: Box::new(Node::BinOp {
