@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 use inkwell::{
-    types::BasicTypeEnum,
+    types::{BasicType, BasicTypeEnum},
     values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue},
     IntPredicate,
 };
@@ -22,7 +22,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
             match first.get_type() {
                 CompilerType::Number(_) => ListType::Number(self.list_type),
 
-                CompilerType::Point(_) => ListType::Number(self.list_type),
+                CompilerType::Point(_) => ListType::Point(self.list_type),
                 t => bail!("Cannot construct list filled with: {t:?}"),
             }
         } else {
@@ -30,8 +30,12 @@ impl<'ctx> CodeGen<'ctx, '_> {
         };
         // Allocate memory for the list
         let pointer = match t {
-            ListType::Number(_) => self.codegen_allocate::<f64>(size)?,
-            ListType::Point(_) => self.codegen_allocate::<PointLayout>(size)?,
+            ListType::Number(_) => {
+                self.codegen_allocate(size, self.float_type.as_basic_type_enum())?
+            }
+            ListType::Point(_) => {
+                self.codegen_allocate(size, self.point_type.as_basic_type_enum())?
+            }
         };
 
         // Create a struct representing the list
@@ -75,10 +79,13 @@ impl<'ctx> CodeGen<'ctx, '_> {
         }
     }
 
-    pub fn codegen_allocate<T>(&self, size: IntValue<'ctx>) -> Result<PointerValue<'ctx>> {
-        // Assuming you're using LLVM's `malloc` to allocate memory
-        let i64_type = self.context.i64_type();
-        let element_size = i64_type.const_int(size_of::<T>() as u64, false); // Assuming 8 bytes per element (for f64)
+    pub fn codegen_allocate(
+        &self,
+        size: IntValue<'ctx>,
+        t: BasicTypeEnum<'ctx>,
+    ) -> Result<PointerValue<'ctx>> {
+        println!("{t}, {:?}", t.size_of());
+        let element_size = t.size_of().context("List value must be sized")?; // Assuming 8 bytes per element (for f64)
         let total_size = self
             .builder
             .build_int_mul(size, element_size, "total_size")?;
@@ -88,11 +95,20 @@ impl<'ctx> CodeGen<'ctx, '_> {
             .module
             .get_function("malloc")
             .expect("malloc should be defined"); // Assuming `malloc` is defined
-                                                 //
-                                                 //
+
+        let element_align = if let BasicTypeEnum::StructType(t) = t {
+            t.get_alignment()
+        } else {
+            element_size
+        };
+
         let raw_ptr = self
             .builder
-            .build_call(malloc_fn, &[total_size.into()], "malloc_call")?
+            .build_call(
+                malloc_fn,
+                &[total_size.into(), element_align.into()],
+                "malloc_call",
+            )?
             .try_as_basic_value()
             .left()
             .expect("return type should not be void")
@@ -103,14 +119,20 @@ impl<'ctx> CodeGen<'ctx, '_> {
 
     pub fn codegen_free(&self, list: CompilerList<'ctx>) -> Result<()> {
         match list {
-            CompilerList::Number(struct_value) => self.codegen_free_list::<f64>(struct_value),
+            CompilerList::Number(struct_value) => {
+                self.codegen_free_list(struct_value, self.float_type.as_basic_type_enum())
+            }
             CompilerList::Point(struct_value) => {
-                self.codegen_free_list::<PointLayout>(struct_value)
+                self.codegen_free_list(struct_value, self.point_type.as_basic_type_enum())
             }
         }
     }
 
-    fn codegen_free_list<T>(&self, struct_value: StructValue<'ctx>) -> Result<()> {
+    fn codegen_free_list(
+        &self,
+        struct_value: StructValue<'ctx>,
+        t: BasicTypeEnum<'ctx>,
+    ) -> Result<()> {
         let pointer_field_index = 1; // Adjust if needed
         let size_field_index = 0; // Adjust if needed
 
@@ -126,22 +148,28 @@ impl<'ctx> CodeGen<'ctx, '_> {
             .expect("Failed to get size field")
             .into_int_value();
 
-        // Integer type (i64 for 64-bit systems)
-        let int_type = self.context.i64_type();
-
         // Compute total size: `total_size = size * size_of::<T>()`
-        let element_size = int_type.const_int(size_of::<T>() as u64, false);
+        let element_size = t.size_of().context("List value must be sized")?;
         let total_size = self
             .builder
             .build_int_mul(size_value, element_size, "total_size")?;
+
+        let element_align = if let BasicTypeEnum::StructType(t) = t {
+            t.get_alignment()
+        } else {
+            element_size
+        };
 
         // Call the `free` function
         let free_fn = self
             .module
             .get_function("free")
             .expect("Free function not found");
-        self.builder
-            .build_call(free_fn, &[pointer.into(), total_size.into()], "free_call")?;
+        self.builder.build_call(
+            free_fn,
+            &[pointer.into(), total_size.into(), element_align.into()],
+            "free_call",
+        )?;
 
         Ok(())
     }

@@ -1,6 +1,6 @@
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FloatType, StructType};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ListType<'ctx> {
     Number(StructType<'ctx>),
     Point(StructType<'ctx>),
@@ -22,7 +22,7 @@ impl<'ctx> ListType<'ctx> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CompilerType<'ctx> {
     Number(FloatType<'ctx>),
     Point(StructType<'ctx>),

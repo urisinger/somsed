@@ -2,7 +2,10 @@ use std::{collections::HashMap, ops::Div};
 
 use desmos_compiler::{
     expressions::ExpressionId,
-    lang::{value::Value},
+    lang::{
+        backends::llvm::jit::PointLayout,
+        value::{ListValue, Value},
+    },
 };
 use iced::{
     event::Status,
@@ -107,6 +110,23 @@ impl Program<Message> for GraphRenderer<'_> {
                             ),
                             Color::from_rgb8(45, 112, 179),
                         );
+                    }
+                    Value::List(ListValue::PointList(l)) => {
+                        println!("{l:?}");
+                        for PointLayout { x, y } in l {
+                            frame.fill(
+                                &Path::circle(
+                                    translate_point(
+                                        Vector::new(*x as f32, *y as f32),
+                                        self.mid,
+                                        range,
+                                        bounds.size(),
+                                    ),
+                                    5.0,
+                                ),
+                                Color::from_rgb8(45, 112, 179),
+                            );
+                        }
                     }
                     Value::List(_) => {}
                 },

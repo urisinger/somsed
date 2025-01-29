@@ -37,9 +37,10 @@ pub fn compile_all_exprs<'ctx>(
         .create_jit_execution_engine(OptimizationLevel::None)
         .unwrap();
 
-    let malloc_type = context
-        .ptr_type(AddressSpace::default())
-        .fn_type(&[context.i64_type().into()], false);
+    let malloc_type = context.ptr_type(AddressSpace::default()).fn_type(
+        &[context.i64_type().into(), context.i64_type().into()],
+        false,
+    );
 
     let malloc_function = codegen.module.add_function("malloc", malloc_type, None);
     execution_engine.add_global_mapping(&malloc_function, malloc as usize);
@@ -47,6 +48,7 @@ pub fn compile_all_exprs<'ctx>(
     let free_type = context.void_type().fn_type(
         &[
             context.ptr_type(AddressSpace::default()).into(),
+            context.i64_type().into(),
             context.i64_type().into(),
         ],
         false,
@@ -123,6 +125,7 @@ pub fn compile_all_exprs<'ctx>(
             _ => {}
         }
     }
+    codegen.module.print_to_stderr();
 
     // Only then we can retrive the functions
     for (id, expr) in &exprs.exprs {

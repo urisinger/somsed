@@ -142,7 +142,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
                         ExplicitJitFn::List(_) => todo!(),
                     },
                     Some(CompiledExpr::Constant { value }) => {
-                        value.clone().try_into().map(ComputationResult::Constant)
+                        value.try_into().map(ComputationResult::Constant)
                     }
                     Some(_) => Err(anyhow!("Only explicit expressions are supported")),
                     None => Err(anyhow!("Failed to retrieve compiled expression")),

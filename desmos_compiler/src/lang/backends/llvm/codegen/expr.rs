@@ -18,7 +18,33 @@ impl<'ctx> CodeGen<'ctx, '_> {
     ) -> Result<CompilerType<'ctx>> {
         Ok(match expr {
             Node::Lit(Literal::Float(_)) => CompilerType::Number(self.float_type),
-            Node::Lit(Literal::List(_)) => CompilerType::List(ListType::Number(self.list_type)),
+            Node::Lit(Literal::List(elements)) => CompilerType::List(
+                match elements
+                    .iter()
+                    .map(|expr| self.return_type(expr, call_types).map(Some))
+                    .reduce(|acc, res| match (acc, res) {
+                        (Ok(Some(a)), Ok(Some(b))) if a == b => Ok(Some(a)),
+
+                        (Ok(_), Ok(_)) => Ok(None),
+
+                        (Err(e), _) => Err(e),
+                        (_, Err(e)) => Err(e),
+                    })
+                    .transpose()
+                    .map(|opt_opt| opt_opt.flatten())?
+                {
+                    Some(CompilerType::Number(_)) => ListType::Number(self.list_type),
+                    Some(CompilerType::Point(_)) => ListType::Point(self.list_type),
+                    Some(CompilerType::List(_)) => bail!("Lists in lists are not allowed"),
+                    None => {
+                        if elements.len() == 0 {
+                            ListType::Number(self.list_type)
+                        } else {
+                            bail!("Lists can only contain one type")
+                        }
+                    }
+                },
+            ),
             Node::Lit(Literal::Point(..)) => CompilerType::Point(self.point_type),
             Node::Ident(ident) => {
                 match self
