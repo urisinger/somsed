@@ -3,18 +3,21 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FloatType, StructType
 #[derive(Debug, Clone, Copy)]
 pub enum ListType<'ctx> {
     Number(StructType<'ctx>),
+    Point(StructType<'ctx>),
 }
 
 impl<'ctx> ListType<'ctx> {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Number(_) => "number_list",
+            Self::Point(_) => "point_list",
         }
     }
 
     pub fn get_type(&self) -> StructType<'ctx> {
         match self {
             ListType::Number(list) => *list,
+            ListType::Point(list) => *list,
         }
     }
 }

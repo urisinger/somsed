@@ -23,6 +23,7 @@ pub type ImplicitFn<'ctx, Output> = JitFunction<'ctx, unsafe extern "C" fn(f64, 
 
 pub enum ExplicitJitListFn<'ctx> {
     Number(ExplicitFn<'ctx, ListLayout>),
+    Point(ExplicitFn<'ctx, ListLayout>),
 }
 
 pub enum ExplicitJitFn<'ctx> {
@@ -33,6 +34,7 @@ pub enum ExplicitJitFn<'ctx> {
 
 pub enum ImplicitJitListFn<'ctx> {
     Number(ImplicitFn<'ctx, ListLayout>),
+    Point(ImplicitFn<'ctx, ListLayout>),
 }
 
 pub enum ImplicitJitFn<'ctx> {
@@ -44,6 +46,7 @@ pub enum ImplicitJitFn<'ctx> {
 #[derive(Debug, Clone)]
 pub enum JitListValue {
     Number(ListLayout),
+    Point(ListLayout),
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +76,10 @@ impl<'ctx> ExplicitJitFn<'ctx> {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ExplicitJitFn::List(ExplicitJitListFn::Number(jit_function)))
                 }
+                ListType::Point(_) => {
+                    let jit_function = execution_engine.get_function(function_name)?;
+                    Ok(ExplicitJitFn::List(ExplicitJitListFn::Point(jit_function)))
+                }
             },
         }
     }
@@ -100,6 +107,7 @@ impl ExplicitJitListFn<'_> {
     pub unsafe fn call(&self, arg: f64) -> JitListValue {
         match self {
             ExplicitJitListFn::Number(jit_fn) => JitListValue::Number(jit_fn.call(arg)),
+            ExplicitJitListFn::Point(jit_fn) => JitListValue::Point(jit_fn.call(arg)),
         }
     }
 }
@@ -123,6 +131,10 @@ impl<'ctx> ImplicitJitFn<'ctx> {
                 ListType::Number(_) => {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ImplicitJitFn::List(ImplicitJitListFn::Number(jit_function)))
+                }
+                ListType::Point(_) => {
+                    let jit_function = execution_engine.get_function(function_name)?;
+                    Ok(ImplicitJitFn::List(ImplicitJitListFn::Point(jit_function)))
                 }
             },
         }
@@ -153,6 +165,10 @@ impl ImplicitJitListFn<'_> {
             ImplicitJitListFn::Number(jit_fn) => {
                 let layout = jit_fn.call(arg1, arg2);
                 JitListValue::Number(layout)
+            }
+            ImplicitJitListFn::Point(jit_fn) => {
+                let layout = jit_fn.call(arg1, arg2);
+                JitListValue::Point(layout)
             }
         }
     }

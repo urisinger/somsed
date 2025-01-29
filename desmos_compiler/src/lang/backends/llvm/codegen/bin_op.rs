@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Result};
 use inkwell::{
     intrinsics::Intrinsic,
-    values::{AnyValue, FloatValue},
+    values::{AnyValue, BasicValue, FloatValue},
 };
 
-use crate::lang::{backends::llvm::value::CompilerValue, parser::BinaryOp};
+use crate::lang::{
+    backends::llvm::value::{CompilerList, CompilerValue},
+    parser::BinaryOp,
+};
 
 use super::CodeGen;
 
@@ -16,18 +19,43 @@ impl<'ctx> CodeGen<'ctx, '_> {
         rhs: CompilerValue<'ctx>,
     ) -> Result<CompilerValue<'ctx>> {
         match (lhs, rhs) {
-            (CompilerValue::List(lhs), CompilerValue::Number(rhs)) => {
-                self.codegen_list_loop(lhs, |lhs| self.codegen_binary_number_op(lhs, op, rhs))
+            (
+                CompilerValue::List(CompilerList::Number(lhs_struct)),
+                CompilerValue::Number(rhs_val),
+            ) => {
+                // We treat each element as f64
+                let element_type = self.context.f64_type().into();
+
+                // Use the generic map-in-place to transform each element
+                let updated_struct =
+                    self.codegen_list_map(lhs_struct, element_type, |loaded_enum| {
+                        // Convert the loaded `BasicValueEnum` to `FloatValue`
+                        let old_value = loaded_enum.into_float_value();
+
+                        // Use your existing codegen_binary_number_op to combine old_value + rhs_val
+                        let new_value = self.codegen_binary_number_op(old_value, op, rhs_val)?;
+
+                        // Convert back to BasicValueEnum
+                        Ok(new_value.as_basic_value_enum())
+                    })?;
+
+                // Return the updated list as List(Number)
+                Ok(CompilerValue::List(CompilerList::Number(updated_struct)))
             }
-            (CompilerValue::Number(lhs), CompilerValue::Number(rhs)) => Ok(CompilerValue::Number(
-                self.codegen_binary_number_op(lhs, op, rhs)?,
-            )),
+
+            (CompilerValue::Number(lhs_val), CompilerValue::Number(rhs_val)) => {
+                let result = self.codegen_binary_number_op(lhs_val, op, rhs_val)?;
+                Ok(CompilerValue::Number(result))
+            }
+
+            // ───────────────────────────────────────────────────────────────
+            // (4) Fallback Error
+            // ───────────────────────────────────────────────────────────────
             (_, _) => Err(anyhow!(
-                "typeerror, expected (List, Number) or (Number, Number)"
-            )),
+            "typeerror, expected (List<Number>, Number), (List<Point>, Number) or (Number, Number)"
+        )),
         }
     }
-
     pub fn codegen_binary_number_op(
         &self,
         lhs: FloatValue<'ctx>,

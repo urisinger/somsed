@@ -8,7 +8,10 @@ mod tests {
 
     use crate::{
         expressions::ExpressionId,
-        lang::{backends::llvm::jit::ListLayout, parser::Expr},
+        lang::{
+            backends::llvm::jit::{JitValue, ListLayout},
+            parser::Expr,
+        },
     };
 
     use super::expressions::Expressions;
@@ -70,8 +73,25 @@ mod tests {
 
                             assert_eq!(result, $expected, "Test '{}' failed: expected {}, got {}", stringify!($name), $expected, result);
                         }
-                        _ => {
-                            panic!("Test '{}' failed: Expected an explicit expression", stringify!($name));
+CompiledExpr::Constant{value} => {
+                            let result = match value{
+                                JitValue::Number(val) => {
+                                    *val
+                                }
+                                JitValue::List(_) => {
+                                    panic!("List results are not supported in this test for '{}'", stringify!($name));
+                                }
+                                JitValue::Point(_) => {
+                                    panic!("Point results are not supported in this test for'{}'", stringify!($name));
+                                }
+                            };
+
+                            assert_eq!(result, $expected, "Test '{}' failed: expected {}, got {}", stringify!($name), $expected, result);
+}
+
+                        _ =>{
+
+                            panic!("Test '{}' failed: Expected an explicit expression found implicit", stringify!($name));
                         }
                     }
 
@@ -167,9 +187,11 @@ mod tests {
                                     // Call the functions
                                     let lhs_list = match lhs_fn {
                                         ImplicitJitListFn::Number(lhs_fn) => unsafe { lhs_fn.call(x, y) },
+                                        ImplicitJitListFn::Point(lhs_fn) => unsafe { lhs_fn.call(x, y) },
                                     };
                                     let rhs_list = match rhs_fn {
                                         ImplicitJitListFn::Number(rhs_fn) => unsafe { rhs_fn.call(x, y) },
+                                        ImplicitJitListFn::Point(rhs_fn) => unsafe { rhs_fn.call(x, y) },
                                     };
 
                                     // Compare the lists
@@ -180,6 +202,7 @@ mod tests {
                                     let lhs_result = unsafe { lhs_fn.call(x, y) };
                                     let rhs_list = match rhs_fn {
                                         ImplicitJitListFn::Number(rhs_fn) => unsafe { rhs_fn.call(x, y) },
+                                        ImplicitJitListFn::Point(rhs_fn) => unsafe { rhs_fn.call(x, y) },
                                     };
                                     // Compare lhs_result with each element of rhs_list
                                     compare_number_with_list(lhs_result, &rhs_list, name);
@@ -188,6 +211,7 @@ mod tests {
                                 (ImplicitJitFn::List(lhs_fn), ImplicitJitFn::Number(rhs_fn)) => {
                                     let lhs_list = match lhs_fn {
                                         ImplicitJitListFn::Number(lhs_fn) => unsafe { lhs_fn.call(x, y) },
+                                        ImplicitJitListFn::Point(lhs_fn) => unsafe { lhs_fn.call(x, y) },
                                     };
                                     let rhs_result = unsafe { rhs_fn.call(x, y) };
                                     compare_number_with_list(rhs_result, &lhs_list, name);
@@ -305,6 +329,8 @@ mod tests {
             test_number_vs_list_mismatch: "x = [1, 2]", inputs = [1.0];
 
             test_list_element_mismatch: "[x, y] = [1, 3]", inputs = [1.0, 3.0];
+
+            test_big_list: "[x, y, x,x,x,x,x,x,x,x,x,x,x,x,x,x,x] = [1, 3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]", inputs = [1.0, 3.0];
         }
     }
 }

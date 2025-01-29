@@ -65,56 +65,11 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 float_type.const_float(*value).into()
             }
             Node::Lit(Literal::List(elements)) => {
-                let int_type = self.context.i64_type();
-                let float_type = self.context.f64_type();
-
-                let size = int_type.const_int(elements.len() as u64, false);
-                let malloc_fn = self
-                    .module
-                    .get_function("malloc")
-                    .expect("malloc should exist");
-
-                let total_size =
-                    self.builder
-                        .build_int_mul(size, int_type.const_int(8, false), "total_size")?;
-                let pointer = self
-                    .builder
-                    .build_call(malloc_fn, &[total_size.into()], "malloc_call")?
-                    .try_as_basic_value()
-                    .left()
-                    .expect("malloc should return a pointer")
-                    .into_pointer_value();
-
-                for (i, element) in elements.iter().enumerate() {
-                    let value = self.codegen_expr(element, fn_context)?;
-
-                    let float_value = match value {
-                        CompilerValue::Number(v) => v,
-                        _ => bail!("List elements must be numbers"),
-                    };
-
-                    let element_ptr = unsafe {
-                        self.builder.build_in_bounds_gep(
-                            float_type,
-                            pointer,
-                            &[int_type.const_int(i as u64, false)],
-                            &format!("element_ptr_{}", i),
-                        )
-                    };
-                    self.builder.build_store(element_ptr?, float_value)?;
-                }
-
-                let mut list_value = self.list_type.get_undef();
-                list_value = self
-                    .builder
-                    .build_insert_value(list_value, size, 0, "list_size")?
-                    .into_struct_value();
-                list_value = self
-                    .builder
-                    .build_insert_value(list_value, pointer, 1, "list_ptr")?
-                    .into_struct_value();
-
-                CompilerValue::List(CompilerList::Number(list_value))
+                let elements = elements
+                    .iter()
+                    .map(|node| self.codegen_expr(node, fn_context))
+                    .collect::<Result<Vec<_>>>()?;
+                self.codegen_list_new(elements)?
             }
             Node::Lit(Literal::Point(x, y)) => {
                 let x = self.codegen_expr(x, fn_context)?;

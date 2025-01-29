@@ -1,4 +1,4 @@
-use super::backends::llvm::jit::{JitListValue, JitValue, PointLayout};
+use super::backends::llvm::jit::{JitListValue, JitValue, ListLayout, PointLayout};
 use anyhow::{bail, Error};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11,6 +11,7 @@ pub enum Value {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ListValue {
     NumberList(Vec<f64>),
+    PointList(Vec<PointLayout>),
 }
 
 impl TryFrom<JitValue> for Value {
@@ -21,26 +22,31 @@ impl TryFrom<JitValue> for Value {
             JitValue::Number(n) => Ok(Value::Number(n)),
             JitValue::Point(PointLayout { x, y }) => Ok(Value::Point { x, y }),
             JitValue::List(JitListValue::Number(list_layout)) => {
-                // Convert the `ListLayout` into a slice of f64
-                unsafe {
-                    if list_layout.ptr.is_null() {
-                        bail!("List pointer is null");
-                    }
-
-                    // Compute the number of elements in the list
-                    let element_count = list_layout.size as usize / std::mem::size_of::<f64>();
-
-                    // Convert the raw pointer into a slice
-                    let slice =
-                        std::slice::from_raw_parts(list_layout.ptr as *const f64, element_count);
-
-                    // Clone the slice into a Vec to create a safe wrapper
-                    let safe_vec = slice.to_vec();
-
-                    // Wrap the Vec<f64> in a `ListValue`
-                    Ok(Value::List(ListValue::NumberList(safe_vec)))
-                }
+                convert_list::<f64>(list_layout).map(|l| Value::List(ListValue::NumberList(l)))
+            }
+            JitValue::List(JitListValue::Point(list_layout)) => {
+                convert_list::<PointLayout>(list_layout)
+                    .map(|l| Value::List(ListValue::PointList(l)))
             }
         }
+    }
+}
+
+/// Generic function to convert `ListLayout` into a `Vec<T>`.
+/// It ensures that the pointer is valid before performing unsafe operations.
+fn convert_list<T: Clone>(list_layout: ListLayout) -> Result<Vec<T>, Error> {
+    unsafe {
+        if list_layout.ptr.is_null() {
+            bail!("List pointer is null");
+        }
+
+        // Compute the number of elements in the list
+        let element_count = list_layout.size as usize / std::mem::size_of::<T>();
+
+        // Convert the raw pointer into a slice
+        let slice = std::slice::from_raw_parts(list_layout.ptr as *const T, element_count);
+
+        // Clone the slice into a Vec to create a safe wrapper
+        Ok(slice.to_vec())
     }
 }

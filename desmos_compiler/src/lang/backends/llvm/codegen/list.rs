@@ -1,15 +1,84 @@
-use anyhow::{Context, Result};
-use inkwell::values::{BasicValue, FloatValue, IntValue, PointerValue};
+use anyhow::{bail, Context, Result};
+use inkwell::{
+    types::BasicTypeEnum,
+    values::{BasicValue, BasicValueEnum, FloatValue, IntValue, PointerValue, StructValue},
+    IntPredicate,
+};
 
-use crate::lang::backends::llvm::value::{CompilerList, CompilerValue};
+use crate::lang::backends::llvm::{
+    jit::PointLayout,
+    types::{CompilerType, ListType},
+    value::{CompilerList, CompilerValue},
+};
 
 use super::CodeGen;
 
 impl<'ctx> CodeGen<'ctx, '_> {
-    pub fn codegen_allocate(&self, size: IntValue<'ctx>) -> Result<PointerValue<'ctx>> {
+    pub fn codegen_list_new(&self, elements: Vec<CompilerValue>) -> Result<CompilerValue<'ctx>> {
+        let i64_type = self.context.i64_type();
+        let size = i64_type.const_int(elements.len() as u64, false);
+
+        let t = if let Some(first) = elements.first() {
+            match first.get_type() {
+                CompilerType::Number(_) => ListType::Number(self.list_type),
+
+                CompilerType::Point(_) => ListType::Number(self.list_type),
+                t => bail!("Cannot construct list filled with: {t:?}"),
+            }
+        } else {
+            ListType::Number(self.list_type)
+        };
+        // Allocate memory for the list
+        let pointer = match t {
+            ListType::Number(_) => self.codegen_allocate::<f64>(size)?,
+            ListType::Point(_) => self.codegen_allocate::<PointLayout>(size)?,
+        };
+
+        // Create a struct representing the list
+        // Assuming the struct contains the size (i32) and the pointer (f64*)
+        let list_type = t.get_type();
+
+        // Initialize the struct with size and pointer
+        let mut list_value = list_type.const_zero(); // Start with a zeroed struct
+        list_value = self
+            .builder
+            .build_insert_value(list_value, size, 0, "list_size")
+            .expect("failed to inizlize struct")
+            .into_struct_value();
+        list_value = self
+            .builder
+            .build_insert_value(list_value, pointer, 1, "list_ptr")
+            .expect("failed to initlize struct")
+            .into_struct_value();
+
+        for (i, value) in elements.iter().enumerate() {
+            let value = match value {
+                CompilerValue::Number(v) => v.as_basic_value_enum(),
+                CompilerValue::Point(p) => p.as_basic_value_enum(),
+                _ => bail!("List elements must be numbers"),
+            };
+
+            let element_ptr = unsafe {
+                self.builder.build_in_bounds_gep(
+                    value.get_type(),
+                    pointer,
+                    &[i64_type.const_int(i as u64, false)],
+                    &format!("element_ptr_{}", i),
+                )
+            };
+            self.builder.build_store(element_ptr?, value)?;
+        }
+        match t {
+            ListType::Number(_) => Ok(CompilerValue::List(CompilerList::Number(list_value))),
+
+            ListType::Point(_) => Ok(CompilerValue::List(CompilerList::Point(list_value))),
+        }
+    }
+
+    pub fn codegen_allocate<T>(&self, size: IntValue<'ctx>) -> Result<PointerValue<'ctx>> {
         // Assuming you're using LLVM's `malloc` to allocate memory
         let i64_type = self.context.i64_type();
-        let element_size = i64_type.const_int(8, false); // Assuming 8 bytes per element (for f64)
+        let element_size = i64_type.const_int(size_of::<T>() as u64, false); // Assuming 8 bytes per element (for f64)
         let total_size = self
             .builder
             .build_int_mul(size, element_size, "total_size")?;
@@ -34,184 +103,143 @@ impl<'ctx> CodeGen<'ctx, '_> {
 
     pub fn codegen_free(&self, list: CompilerList<'ctx>) -> Result<()> {
         match list {
-            CompilerList::Number(struct_value) => {
-                // Assuming the pointer is stored as the first field of the struct
-                let pointer_field_index = 1; // Change this if the pointer is at a different index
-                let pointer: PointerValue<'ctx> = struct_value
-                    .get_field_at_index(pointer_field_index)
-                    .expect("Failed to get pointer field")
-                    .into_pointer_value();
-
-                // Get the size of the array (assuming the size is stored as the first field)
-                let size_field_index = 0; // Change this if the size is at a different index
-                let size_value = struct_value
-                    .get_field_at_index(size_field_index)
-                    .expect("Failed to get size field");
-
-                // Create an integer type for the size
-                let int_type = self.context.i64_type(); // Use i32 or i64 as needed
-
-                // Convert size_value to IntValue
-                let size_int = size_value.into_int_value();
-
-                // Calculate the total size dynamically: total_size = size * size_of::<f32>()
-                let float_size = int_type.const_int(size_of::<f64>() as u64, false); // Use f64 if necessary
-                let total_size = self
-                    .builder
-                    .build_int_mul(size_int, float_size, "total_size")?;
-
-                // Call the free function
-                let free_fn = self
-                    .module
-                    .get_function("free")
-                    .expect("Free function not found");
-                self.builder.build_call(
-                    free_fn,
-                    &[pointer.into(), total_size.into()],
-                    "free_call",
-                )?;
-
-                Ok(())
+            CompilerList::Number(struct_value) => self.codegen_free_list::<f64>(struct_value),
+            CompilerList::Point(struct_value) => {
+                self.codegen_free_list::<PointLayout>(struct_value)
             }
         }
     }
 
-    pub fn codegen_list_new(&self, size: IntValue<'ctx>) -> Result<CompilerValue<'ctx>> {
-        // Allocate memory for the list
-        let pointer = self.codegen_allocate(size)?;
+    fn codegen_free_list<T>(&self, struct_value: StructValue<'ctx>) -> Result<()> {
+        let pointer_field_index = 1; // Adjust if needed
+        let size_field_index = 0; // Adjust if needed
 
-        // Create a struct representing the list
-        // Assuming the struct contains the size (i32) and the pointer (f64*)
-        let list_type = self.context.struct_type(
-            &[self.context.i32_type().into(), pointer.get_type().into()],
-            false,
-        );
+        // Extract pointer field
+        let pointer: PointerValue<'ctx> = struct_value
+            .get_field_at_index(pointer_field_index)
+            .expect("Failed to get pointer field")
+            .into_pointer_value();
 
-        // Initialize the struct with size and pointer
-        let mut list_value = list_type.const_zero(); // Start with a zeroed struct
-        list_value = self
+        // Extract size field
+        let size_value = struct_value
+            .get_field_at_index(size_field_index)
+            .expect("Failed to get size field")
+            .into_int_value();
+
+        // Integer type (i64 for 64-bit systems)
+        let int_type = self.context.i64_type();
+
+        // Compute total size: `total_size = size * size_of::<T>()`
+        let element_size = int_type.const_int(size_of::<T>() as u64, false);
+        let total_size = self
             .builder
-            .build_insert_value(list_value, size, 0, "list_size")
-            .expect("failed to inizlize struct")
-            .into_struct_value();
-        list_value = self
-            .builder
-            .build_insert_value(list_value, pointer, 1, "list_ptr")
-            .expect("failed to initlize struct")
-            .into_struct_value();
+            .build_int_mul(size_value, element_size, "total_size")?;
 
-        // Return the new list as Value::List
-        Ok(CompilerValue::List(CompilerList::Number(list_value)))
+        // Call the `free` function
+        let free_fn = self
+            .module
+            .get_function("free")
+            .expect("Free function not found");
+        self.builder
+            .build_call(free_fn, &[pointer.into(), total_size.into()], "free_call")?;
+
+        Ok(())
     }
 
-    pub fn codegen_list_loop<F>(
+    /// In-place transformation of each element in a "list struct".
+    ///
+    /// - `list_struct`: A struct containing [ size (i64 or i32), pointer (T*) ].
+    /// - `element_type`: The LLVM type of each element (e.g. `context.f64_type().into()`).
+    /// - `transform`: A closure that takes a loaded element and returns a new element.
+    ///
+    /// Returns the same `StructValue<'ctx>`, after in-place modification.
+    pub fn codegen_list_map(
         &self,
-        lhs: CompilerList<'ctx>,
-        func: F,
-    ) -> Result<CompilerValue<'ctx>>
-    where
-        F: FnOnce(FloatValue<'ctx>) -> Result<FloatValue<'ctx>>,
-    {
+        list_struct: StructValue<'ctx>,
+        element_type: BasicTypeEnum<'ctx>,
+        transform: impl Fn(BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>>,
+    ) -> Result<StructValue<'ctx>> {
         let size_field_index = 0;
         let pointer_field_index = 1;
-        match lhs {
-            CompilerList::Number(lhs) => {
-                // Get the size of the list
-                let size_value = lhs
-                    .get_field_at_index(size_field_index)
-                    .context("Failed to get size field")?;
-                let size: IntValue<'ctx> = size_value.into_int_value();
 
-                // Get the pointer to the list elements
-                let pointer_value: PointerValue<'ctx> = lhs
-                    .get_field_at_index(pointer_field_index)
-                    .context("Failed to get pointer field")?
-                    .into_pointer_value();
+        // 1) Extract `size` (assume i64) and the pointer field
+        let size_val = list_struct
+            .get_field_at_index(size_field_index)
+            .context("Failed to get size field")?
+            .into_int_value();
 
-                let current_fn = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
+        let pointer_val = list_struct
+            .get_field_at_index(pointer_field_index)
+            .context("Failed to get pointer field")?
+            .into_pointer_value();
 
-                // Create a loop that iterates through the elements
-                let entry_block = self.context.append_basic_block(current_fn, "entry");
-                let loop_block = self.context.append_basic_block(current_fn, "loop");
-                let end_block = self.context.append_basic_block(current_fn, "end");
+        // 2) Prepare blocks for the loop
+        let current_fn = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
 
-                self.builder.position_at_end(entry_block);
-                let index = self
-                    .builder
-                    .build_alloca(self.context.i64_type(), "index")?;
-                self.builder
-                    .build_store(index, self.context.i64_type().const_int(0, false))?;
+        let entry_block = self.context.append_basic_block(current_fn, "entry");
+        let loop_block = self.context.append_basic_block(current_fn, "loop");
+        let end_block = self.context.append_basic_block(current_fn, "end");
 
-                // Start the loop
-                self.builder.build_unconditional_branch(loop_block)?;
+        // 3) In the `entry` block, create and zero-initialize an `index`.
+        self.builder.position_at_end(entry_block);
 
-                self.builder.position_at_end(loop_block);
-                // Load index value
-                let current_index =
-                    self.builder
-                        .build_load(self.context.i64_type(), index, "current_index")?;
-                let current_index_value = current_index.into_int_value();
+        let index_alloca = self
+            .builder
+            .build_alloca(self.context.i64_type(), "index")?;
+        self.builder
+            .build_store(index_alloca, self.context.i64_type().const_int(0, false))?;
+        self.builder.build_unconditional_branch(loop_block)?;
 
-                // Check if we are still within bounds
-                let condition = self.builder.build_int_compare(
-                    inkwell::IntPredicate::ULT,
-                    current_index_value,
-                    size,
-                    "condition",
-                )?;
+        // 4) In the `loop` block, load the current index and check bounds.
+        self.builder.position_at_end(loop_block);
 
-                // If condition fails, jump to end
-                self.builder
-                    .build_conditional_branch(condition, loop_block, end_block)?;
+        let current_index_val = self
+            .builder
+            .build_load(self.context.i64_type(), index_alloca, "current_index")?
+            .into_int_value();
 
-                // Calculate the pointer for the current element
-                let element_ptr = unsafe {
-                    self.builder.build_in_bounds_gep(
-                        self.context.f64_type(),
-                        pointer_value,
-                        &[current_index_value],
-                        "element_ptr",
-                    )?
-                };
+        let cond = self.builder.build_int_compare(
+            IntPredicate::ULT,
+            current_index_val,
+            size_val,
+            "loop_cond",
+        )?;
+        self.builder
+            .build_conditional_branch(cond, loop_block, end_block)?;
 
-                // Load the current element value
-                let current_value = self.builder.build_load(
-                    self.context.f64_type(),
-                    element_ptr,
-                    "current_value",
-                )?;
+        // GEP to find the pointer of the current element: element_ptr = pointer_val + current_index
+        let element_ptr = unsafe {
+            self.builder.build_in_bounds_gep(
+                element_type, // T
+                pointer_val,  // base pointer
+                &[current_index_val],
+                "element_ptr",
+            )?
+        };
 
-                // Create a `Number` from the current value
-                let lhs_value = current_value.into_float_value();
+        // 5) Load the element, call the `transform` closure, store result
+        let loaded_value = self
+            .builder
+            .build_load(element_type, element_ptr, "loaded_value")?;
+        let transformed_value = transform(loaded_value)?;
+        self.builder.build_store(element_ptr, transformed_value)?;
 
-                // Call the provided function on the current value
-                let new_value = func(lhs_value); // Invoke the function
+        // 6) Increment the index and repeat
+        let next_index = self.builder.build_int_add(
+            current_index_val,
+            self.context.i64_type().const_int(1, false),
+            "next_index",
+        )?;
+        self.builder.build_store(index_alloca, next_index)?;
+        self.builder.build_unconditional_branch(loop_block)?;
 
-                // Store the new value back in the list
-                self.builder
-                    .build_store(element_ptr, new_value?.as_basic_value_enum())?;
-
-                // Increment the index
-                let incremented_index = self.builder.build_int_add(
-                    current_index_value,
-                    self.context.i64_type().const_int(1, false),
-                    "incremented_index",
-                )?;
-                self.builder.build_store(index, incremented_index)?;
-
-                // Repeat the loop
-                self.builder.build_unconditional_branch(loop_block)?;
-
-                // End block
-                self.builder.position_at_end(end_block);
-                // Return the modified list
-                Ok(CompilerValue::List(CompilerList::Number(lhs)))
-            }
-        }
+        // 7) At the `end` block, return the list_struct
+        self.builder.position_at_end(end_block);
+        Ok(list_struct)
     }
 }

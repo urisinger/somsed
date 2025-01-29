@@ -7,30 +7,35 @@ use super::types::{CompilerType, ListType};
 #[derive(Debug, Clone, Copy)]
 pub enum CompilerList<'ctx> {
     Number(StructValue<'ctx>),
+    Point(StructValue<'ctx>),
 }
 
 impl<'ctx> CompilerList<'ctx> {
     pub fn as_basic_value_enum(self) -> BasicValueEnum<'ctx> {
         match self {
             Self::Number(value) => value.as_basic_value_enum(),
+            Self::Point(value) => value.as_basic_value_enum(),
         }
     }
 
     pub fn as_any_value_enum(self) -> AnyValueEnum<'ctx> {
         match self {
             Self::Number(value) => value.as_any_value_enum(),
+            Self::Point(value) => value.as_any_value_enum(),
         }
     }
 
     pub fn from_basic_value_enum(value: BasicValueEnum<'ctx>, ty: ListType) -> Option<Self> {
         match ty {
             ListType::Number(_) => Some(CompilerList::Number(value.try_into().ok()?)),
+            ListType::Point(_) => Some(CompilerList::Point(value.try_into().ok()?)),
         }
     }
 
     pub fn get_type(&self) -> ListType<'ctx> {
         match self {
             Self::Number(list) => ListType::Number(list.get_type()),
+            Self::Point(list) => ListType::Point(list.get_type()),
         }
     }
 }

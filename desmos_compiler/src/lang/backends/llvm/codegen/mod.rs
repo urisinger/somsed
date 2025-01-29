@@ -235,6 +235,12 @@ fn eval_function<'ctx>(
                         JitValue::List(JitListValue::Number(f.call()))
                     },
                 ),
+
+                ListType::Point(_) => execution_engine.get_function(name).map(
+                    |f: JitFunction<unsafe extern "C" fn() -> ListLayout>| {
+                        JitValue::List(JitListValue::Point(f.call()))
+                    },
+                ),
             },
         }
         .context("Could not get function")
