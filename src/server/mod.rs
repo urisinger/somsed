@@ -136,7 +136,8 @@ pub fn points_server() -> RecvStream<'static, Event> {
                 let points_result = match compiled {
                     Some(CompiledExpr::Explicit { lhs }) => match lhs {
                         ExplicitJitFn::Number(lhs) => {
-                            points_explicit(lhs, range, mid, 9, 14).map(ComputationResult::Explicit)
+                            points_explicit(&|n: f64| unsafe { lhs.call(n) }, range, mid, 9, 14)
+                                .map(ComputationResult::Explicit)
                         }
                         ExplicitJitFn::Point(_) => todo!(),
                         ExplicitJitFn::List(_) => todo!(),
@@ -173,7 +174,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
 }
 
 pub fn points_explicit(
-    function: &ExplicitFn<f64>,
+    function: &impl Fn(f64) -> f64,
     range: f32,
     mid: Vector,
     min_depth: u32,
@@ -183,10 +184,10 @@ pub fn points_explicit(
 
     let min_x = mid.x - range / 2.0;
 
-    let min = Vector::new(min_x, unsafe { function.call(min_x as f64) } as f32);
+    let min = Vector::new(min_x, function(min_x as f64) as f32);
 
     let max_x = min_x + range;
-    let max = Vector::new(max_x, unsafe { function.call(max_x as f64) } as f32);
+    let max = Vector::new(max_x, function(max_x as f64) as f32);
 
     points.push(min);
 
@@ -198,7 +199,7 @@ pub fn points_explicit(
 }
 
 fn subdivide(
-    function: &ExplicitFn<f64>,
+    function: &impl Fn(f64) -> f64,
     min: Vector,
     max: Vector,
     depth: u32,
@@ -208,7 +209,7 @@ fn subdivide(
 ) -> Result<()> {
     let x_mid = (min.x + max.x) / 2.0;
 
-    let mid = Vector::new(x_mid, unsafe { function.call(x_mid as f64) } as f32);
+    let mid = Vector::new(x_mid, function(x_mid as f64) as f32);
 
     // Check if subdivision is necessary
     if depth <= max_depth && (depth < min_depth || should_descend(min, mid, max)) {

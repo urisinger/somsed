@@ -3745,6 +3745,8 @@ dependencies = [
  "iced",
  "inkwell",
  "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

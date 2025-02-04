@@ -18,6 +18,7 @@ use server::{ComputationResult, Event, PointsServerRequest};
 
 mod components;
 mod graph;
+mod interop;
 mod server;
 
 static DCG_FONT: &[u8; 45324] = include_bytes!("./dcg-icons-2024-08-02.ttf");
