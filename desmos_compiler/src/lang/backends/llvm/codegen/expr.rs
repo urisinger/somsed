@@ -2,8 +2,8 @@ use anyhow::{bail, Context, Result};
 
 use crate::lang::{
     backends::llvm::{
-        types::{CompilerType, ListType},
-        value::{CompilerList, CompilerValue},
+        types::{CompilerListType, CompilerType},
+        value::CompilerValue,
     },
     parser::{BinaryOp, Expr, Literal, Node},
 };
@@ -33,12 +33,12 @@ impl<'ctx> CodeGen<'ctx, '_> {
                     .transpose()
                     .map(|opt_opt| opt_opt.flatten())?
                 {
-                    Some(CompilerType::Number(_)) => ListType::Number(self.list_type),
-                    Some(CompilerType::Point(_)) => ListType::Point(self.list_type),
+                    Some(CompilerType::Number(_)) => CompilerListType::Number(self.list_type),
+                    Some(CompilerType::Point(_)) => CompilerListType::Point(self.list_type),
                     Some(CompilerType::List(_)) => bail!("Lists in lists are not allowed"),
                     None => {
                         if elements.len() == 0 {
-                            ListType::Number(self.list_type)
+                            CompilerListType::Number(self.list_type)
                         } else {
                             bail!("Lists can only contain one type")
                         }
@@ -75,8 +75,6 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 _ => bail!("expr has the wrong type"),
             },
             Node::FnArg { index } => call_types[*index],
-
-            Node::Comp { .. } => unreachable!("Comp node should not appear here"),
         })
     }
 
@@ -151,7 +149,6 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 _ => unreachable!("idents should be VarDef or FnDef only"),
             },
             Node::FnArg { index } => fn_context.args[*index],
-            Node::Comp { .. } => unreachable!("comp should not apear here"),
         })
     }
 }

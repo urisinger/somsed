@@ -1,11 +1,40 @@
-use super::backends::llvm::jit::{JitListValue, JitValue, ListLayout, PointLayout};
+use super::backends::llvm::{
+    jit::{JitListValue, JitValue, ListLayout, PointLayout},
+    types::CompilerListType,
+};
 use anyhow::{bail, Error};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueType {
+    Number,
+    Point,
+    List(ListType),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListType {
+    NumberList,
+    PointList,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     Point { x: f64, y: f64 },
     List(ListValue),
+}
+
+impl Value {
+    pub fn get_type(&self) -> ValueType {
+        match self {
+            Value::Number(_) => ValueType::Number,
+            Value::Point { .. } => ValueType::Point,
+            Value::List(l) => ValueType::List(match l {
+                ListValue::NumberList(_) => ListType::NumberList,
+                ListValue::PointList(_) => ListType::PointList,
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

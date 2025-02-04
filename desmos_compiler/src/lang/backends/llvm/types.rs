@@ -1,12 +1,12 @@
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FloatType, StructType};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ListType<'ctx> {
+pub enum CompilerListType<'ctx> {
     Number(StructType<'ctx>),
     Point(StructType<'ctx>),
 }
 
-impl<'ctx> ListType<'ctx> {
+impl<'ctx> CompilerListType<'ctx> {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Number(_) => "number_list",
@@ -16,8 +16,8 @@ impl<'ctx> ListType<'ctx> {
 
     pub fn get_type(&self) -> StructType<'ctx> {
         match self {
-            ListType::Number(list) => *list,
-            ListType::Point(list) => *list,
+            CompilerListType::Number(list) => *list,
+            CompilerListType::Point(list) => *list,
         }
     }
 }
@@ -26,7 +26,7 @@ impl<'ctx> ListType<'ctx> {
 pub enum CompilerType<'ctx> {
     Number(FloatType<'ctx>),
     Point(StructType<'ctx>),
-    List(ListType<'ctx>),
+    List(CompilerListType<'ctx>),
 }
 
 impl<'ctx> CompilerType<'ctx> {

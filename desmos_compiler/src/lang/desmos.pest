@@ -8,7 +8,7 @@ program      =  _{ SOI ~ comparison ~ EOI }
       lt           =  _{ "<" }   // Less than
       gte          =  _{ ">=" }  // Greater than or equal to
       lte          =  _{ "<=" }  // Less than or equal to
-    expr     =  { atom ~ (infix ~ atom)* }
+    expr     =   { atom ~ (infix ~ atom)* }
     atom     =  _{ prefix? ~ primary ~ postfix?}
     infix    =  _{ add | sub | mul | div | paren }
       add    =   { "+" } // Addition
@@ -45,5 +45,3 @@ program      =  _{ SOI ~ comparison ~ EOI }
       exp    =  _{ ^"e" ~ ("+" | "-")? ~ int }
       int    =  @{ ASCII_DIGIT+ }
       ident  =  @{ASCII_ALPHA ~ ("{" ~ ASCII_ALPHANUMERIC ~ "}")?}
-
-

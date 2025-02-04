@@ -16,7 +16,7 @@ use functions::IMPORTED_FUNCTIONS;
 use self::functions::{free, malloc};
 
 use super::jit::{ExplicitJitFn, ImplicitJitFn, JitListValue, JitValue, ListLayout, PointLayout};
-use super::types::{CompilerType, ListType};
+use super::types::{CompilerListType, CompilerType};
 use super::value::CompilerValue;
 use super::{CompiledExpr, CompiledExprs};
 
@@ -125,7 +125,6 @@ pub fn compile_all_exprs<'ctx>(
             _ => {}
         }
     }
-    codegen.module.print_to_stderr();
 
     // Only then we can retrive the functions
     for (id, expr) in &exprs.exprs {
@@ -233,13 +232,13 @@ fn eval_function<'ctx>(
                 |f: JitFunction<unsafe extern "C" fn() -> PointLayout>| JitValue::Point(f.call()),
             ),
             CompilerType::List(list_t) => match list_t {
-                ListType::Number(_) => execution_engine.get_function(name).map(
+                CompilerListType::Number(_) => execution_engine.get_function(name).map(
                     |f: JitFunction<unsafe extern "C" fn() -> ListLayout>| {
                         JitValue::List(JitListValue::Number(f.call()))
                     },
                 ),
 
-                ListType::Point(_) => execution_engine.get_function(name).map(
+                CompilerListType::Point(_) => execution_engine.get_function(name).map(
                     |f: JitFunction<unsafe extern "C" fn() -> ListLayout>| {
                         JitValue::List(JitListValue::Point(f.call()))
                     },

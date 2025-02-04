@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use lazy_static::lazy_static;
-use pest::iterators::Pairs;
+use pest::iterators::{Pair, Pairs};
 
 use pest::pratt_parser::{Assoc, Op, PrattParser};
 use pest::Parser;
@@ -46,12 +46,12 @@ pub struct ResolvedExpr {
 
 impl ResolvedExpr {
     pub fn parse(s: &str) -> Result<Self> {
-        let pairs = ExprParser::parse(Rule::program, s)?
+        let pairs = ExprParser::parse(Rule::comparison, s)?
             .next()
             .unwrap()
             .into_inner();
 
-        let mut expr = Expr::decide_expr_type(parse_expr(pairs)?);
+        let mut expr = parse_expr(pairs)?;
 
         let used_idents = expr.used_idents();
         expr.replace_scope();
@@ -83,11 +83,11 @@ pub enum Expr {
 
 impl Expr {
     pub fn parse(s: &str) -> Result<Self> {
-        let pairs = ExprParser::parse(Rule::program, s)?
+        let pairs = ExprParser::parse(Rule::comparison, s)?
             .next()
             .unwrap()
             .into_inner();
-        let mut expr = Self::decide_expr_type(parse_expr(pairs)?);
+        let mut expr = parse_expr(pairs)?;
         expr.replace_scope();
         Ok(expr)
     }
@@ -140,51 +140,6 @@ impl Expr {
             ),
         }
     }
-
-    fn decide_expr_type(node: Node) -> Self {
-        if let Node::Comp { lhs, op, rhs } = node {
-            match *lhs {
-                Node::Ident(ident) => {
-                    if ident == "x" || ident == "y" {
-                        Self::Implicit {
-                            lhs: Node::Ident(ident),
-                            op,
-                            rhs: *rhs,
-                        }
-                    } else {
-                        Expr::VarDef { ident, rhs: *rhs }
-                    }
-                }
-                Node::FnCall { ident, args }
-                    if args.iter().all(|node| matches!(node, Node::Ident(_))) =>
-                {
-                    let args = args
-                        .into_iter()
-                        .map(|node| {
-                            if let Node::Ident(ident) = node {
-                                ident
-                            } else {
-                                unreachable!("should have been verified before")
-                            }
-                        })
-                        .collect();
-
-                    Self::FnDef {
-                        ident,
-                        args,
-                        rhs: *rhs,
-                    }
-                }
-                _ => Self::Implicit {
-                    lhs: *lhs,
-                    op,
-                    rhs: *rhs,
-                },
-            }
-        } else {
-            Self::Explicit { lhs: node }
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -205,11 +160,6 @@ pub enum Node {
         args: Vec<Node>,
     },
 
-    Comp {
-        lhs: Box<Node>,
-        op: ComparisonOp,
-        rhs: Box<Node>,
-    },
     FnArg {
         index: usize,
     },
@@ -238,10 +188,6 @@ impl Node {
             }
             Node::UnaryOp { val, .. } => val.replace_scope(scope),
             Node::FnCall { args, .. } => args.iter_mut().for_each(|node| node.replace_scope(scope)),
-            Node::Comp { lhs, rhs, .. } => {
-                lhs.replace_scope(scope);
-                rhs.replace_scope(scope);
-            }
         }
     }
 
@@ -266,10 +212,6 @@ impl Node {
             }
             Node::UnaryOp { val, .. } => val.used_idents(idents),
             Node::FnCall { args, .. } => args.iter().for_each(|node| node.used_idents(idents)),
-            Node::Comp { lhs, rhs, .. } => {
-                lhs.used_idents(idents);
-                rhs.used_idents(idents);
-            }
         }
     }
 }
@@ -318,7 +260,92 @@ pub enum UnaryOp {
     Fac,
 }
 
-fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
+fn parse_expr(mut pairs: Pairs<Rule>) -> Result<Expr> {
+    let lhs = pairs.next();
+    let op = pairs.next();
+    let rhs = pairs.next();
+    match op {
+        Some(op) => {
+            let rhs = parse_node(rhs.expect("If op is provided rhs is expected").into_inner())?;
+            let mut lhs = lhs.expect("expected atleast one expr");
+            eprintln!("{:?}", lhs.as_rule());
+            let mut lhs = lhs.into_inner();
+            let op = match op.as_str() {
+                "=" => ComparisonOp::Eq,
+                ">" => ComparisonOp::Gt,
+                "<" => ComparisonOp::Lt,
+                ">=" => ComparisonOp::Gte,
+                "<=" => ComparisonOp::Lte,
+                rule => {
+                    unreachable!("expected eq, gt, lt, gte, lte found {:?}", rule)
+                }
+            };
+
+            if lhs.len() == 1 {
+                let lhs_first = lhs.peek().unwrap();
+                match lhs_first.as_rule() {
+                    Rule::ident => {
+                        let name = lhs_first.as_str().to_string();
+                        if name == "x" || name == "y" {
+                            Ok(Expr::Implicit {
+                                lhs: Node::Ident(name),
+                                op,
+                                rhs,
+                            })
+                        } else {
+                            Ok(Expr::VarDef { ident: name, rhs })
+                        }
+                    }
+                    Rule::fn_call => {
+                        let mut pairs = lhs_first.into_inner();
+                        let func_name = pairs.next().unwrap();
+                        let args = pairs
+                            .map(|expr| parse_node(expr.into_inner()))
+                            .collect::<Result<Vec<_>>>()?;
+                        let ident = func_name.as_str().to_string();
+                        if args.iter().all(|node| matches!(node, Node::Ident(_))) {
+                            let args = args
+                                .into_iter()
+                                .map(|node| {
+                                    if let Node::Ident(ident) = node {
+                                        ident
+                                    } else {
+                                        unreachable!("should have been verified before")
+                                    }
+                                })
+                                .collect();
+
+                            Ok(Expr::FnDef { ident, args, rhs })
+                        } else {
+                            Ok(Expr::Implicit {
+                                lhs: Node::FnCall { ident, args },
+                                op,
+                                rhs,
+                            })
+                        }
+                    }
+
+                    _ => Ok(Expr::Implicit {
+                        lhs: parse_node(lhs)?,
+                        op,
+                        rhs,
+                    }),
+                }
+            } else {
+                Ok(Expr::Implicit {
+                    lhs: parse_node(lhs)?,
+                    op,
+                    rhs,
+                })
+            }
+        }
+        None => Ok(Expr::Explicit {
+            lhs: parse_node(lhs.expect("expected atleast one expr").into_inner())?,
+        }),
+    }
+}
+
+fn parse_node(pairs: Pairs<Rule>) -> Result<Node> {
     PRATT_PARSER
         .map_primary(|primary| {
             Ok(match primary.as_rule() {
@@ -328,13 +355,13 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
 
                     Node::Ident(name)
                 }
-                Rule::expr => parse_expr(primary.into_inner())?,
-                Rule::comparison => parse_expr(primary.into_inner())?,
+                Rule::expr => parse_node(primary.into_inner())?,
+                Rule::comparison => parse_node(primary.into_inner())?,
                 Rule::fn_call => {
                     let mut pairs = primary.into_inner();
                     let func_name = pairs.next().unwrap();
                     let args = pairs
-                        .map(|expr| parse_expr(expr.into_inner()))
+                        .map(|expr| parse_node(expr.into_inner()))
                         .collect::<Result<Vec<_>>>()?;
                     let ident = func_name.as_str().to_string();
 
@@ -342,15 +369,15 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
                 }
                 Rule::point => {
                     let mut pairs = primary.into_inner();
-                    let x = Box::new(parse_expr(pairs.next().unwrap().into_inner())?);
-                    let y = Box::new(parse_expr(pairs.next().unwrap().into_inner())?);
+                    let x = Box::new(parse_node(pairs.next().unwrap().into_inner())?);
+                    let y = Box::new(parse_node(pairs.next().unwrap().into_inner())?);
 
                     Node::Lit(Literal::Point(x, y))
                 }
                 Rule::list => Node::Lit(Literal::List(
                     primary
                         .into_inner()
-                        .map(|pair| parse_expr(pair.into_inner()))
+                        .map(|pair| parse_node(pair.into_inner()))
                         .collect::<Result<Vec<_>>>()?,
                 )),
                 Rule::float => Node::Lit(Literal::Float(primary.as_str().parse::<f64>()?)),
@@ -359,9 +386,9 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
                     let numerator = pairs.next().unwrap();
                     let denominator = pairs.next().unwrap();
                     Node::BinOp {
-                        lhs: Box::new(parse_expr(numerator.into_inner())?),
+                        lhs: Box::new(parse_node(numerator.into_inner())?),
                         op: BinaryOp::Div,
-                        rhs: Box::new(parse_expr(denominator.into_inner())?),
+                        rhs: Box::new(parse_node(denominator.into_inner())?),
                     }
                 }
                 rule => unreachable!(
@@ -407,7 +434,7 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
                     Node::BinOp {
                         lhs: Box::new(lhs?),
                         op: BinaryOp::Pow,
-                        rhs: Box::new(parse_expr(exponent.into_inner())?),
+                        rhs: Box::new(parse_node(exponent.into_inner())?),
                     }
                 }
 
@@ -415,38 +442,19 @@ fn parse_expr(pairs: Pairs<Rule>) -> Result<Node> {
             })
         })
         .map_infix(|lhs, op, rhs| {
-            Ok(match op.as_rule() {
-                Rule::relop => {
-                    let op = match op.as_str() {
-                        "=" => ComparisonOp::Eq,
-                        ">" => ComparisonOp::Gt,
-                        "<" => ComparisonOp::Lt,
-                        ">=" => ComparisonOp::Gte,
-                        "<=" => ComparisonOp::Lte,
-                        rule => {
-                            unreachable!("expected eq, gt, lt, gte, lte found {:?}", rule)
-                        }
-                    };
-                    Node::Comp {
-                        lhs: Box::new(lhs?),
-                        rhs: Box::new(rhs?),
-                        op,
-                    }
-                }
-                _ => Node::BinOp {
-                    lhs: Box::new(lhs?),
-                    op: match op.as_rule() {
-                        Rule::add => BinaryOp::Add,
-                        Rule::sub => BinaryOp::Sub,
-                        Rule::mul => BinaryOp::Mul,
-                        Rule::div => BinaryOp::Div,
-                        Rule::pow => BinaryOp::Pow,
-                        Rule::paren => BinaryOp::Mul,
+            Ok(Node::BinOp {
+                lhs: Box::new(lhs?),
+                op: match op.as_rule() {
+                    Rule::add => BinaryOp::Add,
+                    Rule::sub => BinaryOp::Sub,
+                    Rule::mul => BinaryOp::Mul,
+                    Rule::div => BinaryOp::Div,
+                    Rule::pow => BinaryOp::Pow,
+                    Rule::paren => BinaryOp::Mul,
 
-                        _ => unreachable!(),
-                    },
-                    rhs: Box::new(rhs?),
+                    r => unreachable!("{r:?}"),
                 },
+                rhs: Box::new(rhs?),
             })
         })
         .parse(pairs)

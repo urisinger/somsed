@@ -2,7 +2,7 @@ use inkwell::values::{
     AnyValue, AnyValueEnum, BasicValue, BasicValueEnum, FloatValue, StructValue,
 };
 
-use super::types::{CompilerType, ListType};
+use super::types::{CompilerListType, CompilerType};
 
 #[derive(Debug, Clone, Copy)]
 pub enum CompilerList<'ctx> {
@@ -25,17 +25,20 @@ impl<'ctx> CompilerList<'ctx> {
         }
     }
 
-    pub fn from_basic_value_enum(value: BasicValueEnum<'ctx>, ty: ListType) -> Option<Self> {
+    pub fn from_basic_value_enum(
+        value: BasicValueEnum<'ctx>,
+        ty: CompilerListType,
+    ) -> Option<Self> {
         match ty {
-            ListType::Number(_) => Some(CompilerList::Number(value.try_into().ok()?)),
-            ListType::Point(_) => Some(CompilerList::Point(value.try_into().ok()?)),
+            CompilerListType::Number(_) => Some(CompilerList::Number(value.try_into().ok()?)),
+            CompilerListType::Point(_) => Some(CompilerList::Point(value.try_into().ok()?)),
         }
     }
 
-    pub fn get_type(&self) -> ListType<'ctx> {
+    pub fn get_type(&self) -> CompilerListType<'ctx> {
         match self {
-            Self::Number(list) => ListType::Number(list.get_type()),
-            Self::Point(list) => ListType::Point(list.get_type()),
+            Self::Number(list) => CompilerListType::Number(list.get_type()),
+            Self::Point(list) => CompilerListType::Point(list.get_type()),
         }
     }
 }

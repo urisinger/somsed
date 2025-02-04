@@ -1,7 +1,7 @@
 use anyhow::Result;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 
-use super::types::{CompilerType, ListType};
+use super::types::{CompilerListType, CompilerType};
 
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -72,11 +72,11 @@ impl<'ctx> ExplicitJitFn<'ctx> {
                 Ok(ExplicitJitFn::Point(jit_function))
             }
             CompilerType::List(list_type) => match list_type {
-                ListType::Number(_) => {
+                CompilerListType::Number(_) => {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ExplicitJitFn::List(ExplicitJitListFn::Number(jit_function)))
                 }
-                ListType::Point(_) => {
+                CompilerListType::Point(_) => {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ExplicitJitFn::List(ExplicitJitListFn::Point(jit_function)))
                 }
@@ -128,11 +128,11 @@ impl<'ctx> ImplicitJitFn<'ctx> {
                 Ok(ImplicitJitFn::Point(jit_function))
             }
             CompilerType::List(list_type) => match list_type {
-                ListType::Number(_) => {
+                CompilerListType::Number(_) => {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ImplicitJitFn::List(ImplicitJitListFn::Number(jit_function)))
                 }
-                ListType::Point(_) => {
+                CompilerListType::Point(_) => {
                     let jit_function = execution_engine.get_function(function_name)?;
                     Ok(ImplicitJitFn::List(ImplicitJitListFn::Point(jit_function)))
                 }

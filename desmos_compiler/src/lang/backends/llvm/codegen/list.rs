@@ -7,7 +7,7 @@ use inkwell::{
 
 use crate::lang::backends::llvm::{
     jit::PointLayout,
-    types::{CompilerType, ListType},
+    types::{CompilerListType, CompilerType},
     value::{CompilerList, CompilerValue},
 };
 
@@ -20,20 +20,20 @@ impl<'ctx> CodeGen<'ctx, '_> {
 
         let t = if let Some(first) = elements.first() {
             match first.get_type() {
-                CompilerType::Number(_) => ListType::Number(self.list_type),
+                CompilerType::Number(_) => CompilerListType::Number(self.list_type),
 
-                CompilerType::Point(_) => ListType::Point(self.list_type),
+                CompilerType::Point(_) => CompilerListType::Point(self.list_type),
                 t => bail!("Cannot construct list filled with: {t:?}"),
             }
         } else {
-            ListType::Number(self.list_type)
+            CompilerListType::Number(self.list_type)
         };
         // Allocate memory for the list
         let pointer = match t {
-            ListType::Number(_) => {
+            CompilerListType::Number(_) => {
                 self.codegen_allocate(size, self.float_type.as_basic_type_enum())?
             }
-            ListType::Point(_) => {
+            CompilerListType::Point(_) => {
                 self.codegen_allocate(size, self.point_type.as_basic_type_enum())?
             }
         };
@@ -73,9 +73,11 @@ impl<'ctx> CodeGen<'ctx, '_> {
             self.builder.build_store(element_ptr?, value)?;
         }
         match t {
-            ListType::Number(_) => Ok(CompilerValue::List(CompilerList::Number(list_value))),
+            CompilerListType::Number(_) => {
+                Ok(CompilerValue::List(CompilerList::Number(list_value)))
+            }
 
-            ListType::Point(_) => Ok(CompilerValue::List(CompilerList::Point(list_value))),
+            CompilerListType::Point(_) => Ok(CompilerValue::List(CompilerList::Point(list_value))),
         }
     }
 
