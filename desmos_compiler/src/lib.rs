@@ -1,3 +1,4 @@
+#![allow(type_alias_bounds)]
 pub mod expressions;
 pub mod lang;
 
