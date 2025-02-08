@@ -1,13 +1,17 @@
 use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Result};
 use desmos_compiler::lang;
-use desmos_compiler::lang::backends::llvm::jit::{ExplicitFn, ExplicitJitFn};
-use desmos_compiler::lang::backends::llvm::CompiledExpr;
-use desmos_compiler::lang::backends::llvm::{codegen::compile_all_exprs, CompiledExprs};
-
+use desmos_compiler::lang::backends::compiled::backend::compile_expressions;
+use desmos_compiler::lang::backends::compiled::backend::compiled_exprs::{
+    CompiledExpr, CompiledExprs,
+};
+use desmos_compiler::lang::backends::compiled::backend::jit::{
+    ExplicitFn, ExplicitJitFn, JitValue,
+};
+use desmos_compiler::lang::backends::compiled::backend::llvm::LLVMBackend;
+use desmos_compiler::lang::backends::compiled::generic_value::{GenericList, GenericValue};
 use flume::r#async::RecvStream;
 use iced::Vector;
-use lang::value::Value;
 use std::collections::HashSet;
 use std::thread;
 
@@ -29,7 +33,7 @@ pub enum PointsServerRequest {
 
 #[derive(Debug, Clone)]
 pub enum ComputationResult {
-    Constant(Value),
+    Constant(JitValue),
     Explicit(Vec<Vector>),
     Implicit(Vec<Vector>),
 }
@@ -89,7 +93,8 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             continue;
                         }
 
-                        compiled_exprs = compile_all_exprs(&context, &expressions);
+                        let backend = LLVMBackend::new(&context);
+                        compiled_exprs = compile_expressions(&backend, &expressions);
 
                         for &id in expressions.exprs.keys() {
                             if !compiled_exprs.errors.contains_key(&id) {
@@ -135,15 +140,15 @@ pub fn points_server() -> RecvStream<'static, Event> {
                 let compiled = compiled_exprs.compiled.get(&id);
                 let points_result = match compiled {
                     Some(CompiledExpr::Explicit { lhs }) => match lhs {
-                        ExplicitJitFn::Number(lhs) => {
-                            points_explicit(&|n: f64| unsafe { lhs.call(n) }, range, mid, 9, 14)
+                        GenericValue::Number(lhs) => {
+                            points_explicit(&|n: f64| lhs.call(n), range, mid, 9, 14)
                                 .map(ComputationResult::Explicit)
                         }
-                        ExplicitJitFn::Point(_) => todo!(),
-                        ExplicitJitFn::List(_) => todo!(),
+                        GenericValue::Point(_) => todo!(),
+                        GenericValue::List(_) => todo!(),
                     },
                     Some(CompiledExpr::Constant { value }) => {
-                        value.try_into().map(ComputationResult::Constant)
+                        Ok(ComputationResult::Constant(value.clone()))
                     }
                     Some(_) => Err(anyhow!("Only explicit expressions are supported")),
                     None => Err(anyhow!("Failed to retrieve compiled expression")),

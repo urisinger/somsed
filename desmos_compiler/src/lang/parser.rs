@@ -1,12 +1,15 @@
-use std::collections::{HashMap, HashSet};
-
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use lazy_static::lazy_static;
 use pest::iterators::{Pair, Pairs};
+use std::collections::{HashMap, HashSet};
 
 use pest::pratt_parser::{Assoc, Op, PrattParser};
 use pest::Parser;
 use pest_derive::Parser;
+
+use crate::expressions::Expressions;
+
+use super::backends::compiled::generic_value::{ListType, ValueType};
 
 #[derive(Parser)]
 #[grammar = "lang/desmos.pest"] // Point to the grammar file
@@ -214,6 +217,64 @@ impl Node {
             Node::FnCall { args, .. } => args.iter().for_each(|node| node.used_idents(idents)),
         }
     }
+
+    pub fn return_type(&self, exprs: &Expressions, call_types: &[ValueType]) -> Result<ValueType> {
+        Ok(match self {
+            Node::Lit(Literal::Float(_)) => ValueType::Number(()),
+            Node::Lit(Literal::List(elements)) => ValueType::List(
+                // Return an error if one of the calls errored, return the common type if all types
+                // are equal
+                match elements.iter().try_fold(None, |acc, expr| {
+                    expr.return_type(exprs, call_types)
+                        .map(|current| match acc {
+                            None => Some(current),
+                            Some(a) if a == current => Some(current),
+                            _ => None,
+                        })
+                })? {
+                    Some(ValueType::Number(_)) => ListType::NumberList(()),
+                    Some(ValueType::Point(_)) => ListType::PointList(()),
+                    Some(ValueType::List(_)) => bail!("Lists in lists are not allowed"),
+                    None => {
+                        if elements.len() == 0 {
+                            ListType::NumberList(())
+                        } else {
+                            bail!("Lists can only contain one type")
+                        }
+                    }
+                },
+            ),
+            Node::Lit(Literal::Point(..)) => ValueType::Point(()),
+            Node::Ident(ident) => {
+                match exprs
+                    .get_expr(ident)
+                    .context(format!("failed to get expr for ident, {}", ident))?
+                {
+                    Expr::VarDef { rhs, .. } => rhs.return_type(exprs, call_types)?,
+                    expr => bail!("expr has wrong type, this should not happend, {expr:?}"),
+                }
+            }
+            Node::BinOp { .. } => ValueType::Number(()),
+            Node::UnaryOp { val, .. } => val.return_type(exprs, call_types)?,
+            Node::FnCall { ident, args } => match exprs.get_expr(ident) {
+                Some(Expr::FnDef { rhs, .. }) => {
+                    let call_types = args
+                        .iter()
+                        .map(|arg| {
+                            let value = arg.return_type(exprs, call_types)?;
+                            Ok(value)
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+
+                    rhs.return_type(exprs, &call_types)?
+                }
+                Some(Expr::VarDef { rhs, .. }) => rhs.return_type(exprs, call_types)?,
+                None => bail!("unknown ident {ident}"),
+                _ => bail!("expr has the wrong type"),
+            },
+            Node::FnArg { index } => call_types[*index].clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -237,6 +298,7 @@ pub enum BinaryOp {
     Add,
     Sub,
     Mul,
+    Paran,
     Div,
     Pow,
 }
@@ -267,9 +329,7 @@ fn parse_expr(mut pairs: Pairs<Rule>) -> Result<Expr> {
     match op {
         Some(op) => {
             let rhs = parse_node(rhs.expect("If op is provided rhs is expected").into_inner())?;
-            let mut lhs = lhs.expect("expected atleast one expr");
-            eprintln!("{:?}", lhs.as_rule());
-            let mut lhs = lhs.into_inner();
+            let lhs = lhs.expect("expected atleast one expr").into_inner();
             let op = match op.as_str() {
                 "=" => ComparisonOp::Eq,
                 ">" => ComparisonOp::Gt,
@@ -450,7 +510,7 @@ fn parse_node(pairs: Pairs<Rule>) -> Result<Node> {
                     Rule::mul => BinaryOp::Mul,
                     Rule::div => BinaryOp::Div,
                     Rule::pow => BinaryOp::Pow,
-                    Rule::paren => BinaryOp::Mul,
+                    Rule::paren => BinaryOp::Paran,
 
                     r => unreachable!("{r:?}"),
                 },

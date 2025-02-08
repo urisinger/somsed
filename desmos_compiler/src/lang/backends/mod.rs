@@ -1,2 +1,1 @@
-pub mod interpreted;
-pub mod llvm;
+pub mod compiled;

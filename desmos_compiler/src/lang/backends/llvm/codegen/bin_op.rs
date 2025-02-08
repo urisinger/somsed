@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use inkwell::{
     intrinsics::Intrinsic,
-    values::{AnyValue, BasicValue, FloatValue},
+    values::{AnyValue, BasicValue, FloatValue, StructValue},
 };
 
 use crate::lang::{
@@ -48,14 +48,12 @@ impl<'ctx> CodeGen<'ctx, '_> {
                 Ok(CompilerValue::Number(result))
             }
 
-            // ───────────────────────────────────────────────────────────────
-            // (4) Fallback Error
-            // ───────────────────────────────────────────────────────────────
             (_, _) => Err(anyhow!(
             "typeerror, expected (List<Number>, Number), (List<Point>, Number) or (Number, Number)"
         )),
         }
     }
+
     pub fn codegen_binary_number_op(
         &self,
         lhs: FloatValue<'ctx>,
@@ -66,6 +64,7 @@ impl<'ctx> CodeGen<'ctx, '_> {
             BinaryOp::Add => self.builder.build_float_add(lhs, rhs, "add")?,
             BinaryOp::Sub => self.builder.build_float_sub(lhs, rhs, "sub")?,
             BinaryOp::Mul => self.builder.build_float_mul(lhs, rhs, "mul")?,
+            BinaryOp::Paran => self.builder.build_float_mul(lhs, rhs, "mul")?,
             BinaryOp::Div => self.builder.build_float_div(lhs, rhs, "div")?,
             BinaryOp::Pow => {
                 let intrinsic = Intrinsic::find("llvm.pow").unwrap();
