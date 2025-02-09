@@ -1,7 +1,8 @@
 use anyhow::Result;
 
-use crate::lang::parser::{Expr, ResolvedExpr};
 use std::collections::{HashMap, HashSet};
+
+use crate::lang::expr::{Expr, ResolvedExpr};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExpressionId(pub u32);

@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use compiled_exprs::{CompiledExpr, CompiledExprs};
 use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
 
-use crate::{expressions::Expressions, lang::parser::Expr};
+use crate::{expressions::Expressions, lang::expr::Expr};
 
 use super::{
     codegen::CodeGen,
@@ -31,14 +31,14 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
 
                 let lhs_name = format!("implicit_{}_lhs", id.0);
                 _ = codegen
-                    .compile_fn(&lhs_name, lhs, &args_t)
+                    .compile_fn(&lhs_name, &lhs, &args_t)
                     .inspect_err(|e| {
                         compiled_exprs.errors.insert(*id, e.to_string());
                     });
 
                 let rhs_name = format!("implicit_{}_rhs", id.0);
                 _ = codegen
-                    .compile_fn(&rhs_name, rhs, &args_t)
+                    .compile_fn(&rhs_name, &rhs, &args_t)
                     .inspect_err(|e| {
                         compiled_exprs.errors.insert(*id, e.to_string());
                     });
@@ -52,7 +52,7 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                     vec![]
                 };
 
-                _ = codegen.compile_fn(&name, lhs, &args).inspect_err(|e| {
+                _ = codegen.compile_fn(&name, &lhs, &args).inspect_err(|e| {
                     compiled_exprs.errors.insert(*id, e.to_string());
                 });
             }
@@ -63,7 +63,7 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                 let name = format!("{}_number_number", ident);
 
                 let args = vec![];
-                _ = codegen.compile_fn(&name, rhs, &args).inspect_err(|e| {
+                _ = codegen.compile_fn(&name, &rhs, &args).inspect_err(|e| {
                     compiled_exprs.errors.insert(*id, e.to_string());
                 });
             }

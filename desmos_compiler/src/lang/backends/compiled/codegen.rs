@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     expressions::Expressions,
-    lang::parser::{BinaryOp, Expr, Literal, Node},
+    lang::expr::{BinaryOp, Expr, Literal, Node},
 };
 
 use super::{
@@ -95,7 +95,7 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
             .get_expr(ident)
             .context(anyhow!("Cannot find expr {ident}"))?
         {
-            Expr::VarDef { rhs, .. } => self.codegen_expr(builder, rhs),
+            Expr::VarDef { rhs, .. } => self.codegen_expr(builder, &rhs),
             _ => bail!("Expr is not of type VarDef"),
         }
     }
@@ -126,7 +126,7 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
         } else {
             match self.exprs.get_expr(name) {
                 Some(Expr::FnDef { rhs, .. }) => {
-                    let function = self.compile_fn(specialized_name.clone(), rhs, &types)?;
+                    let function = self.compile_fn(specialized_name.clone(), &rhs, &types)?;
 
                     let return_type = self
                         .return_types

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{expressions::ExpressionId, lang::parser::ComparisonOp};
+use crate::{expressions::ExpressionId, lang::expr::ComparisonOp};
 
 use super::{
     jit::{ExplicitJitFn, ImplicitJitFn, JitValue},
