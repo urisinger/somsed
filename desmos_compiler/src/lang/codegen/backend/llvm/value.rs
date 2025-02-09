@@ -6,7 +6,7 @@ use inkwell::{
     },
 };
 
-use crate::lang::backends::compiled::generic_value::{GenericList, GenericValue, ValueType};
+use crate::lang::generic_value::{GenericList, GenericValue, ValueType};
 
 pub type LLVMValue<'ctx> =
     GenericValue<FloatValue<'ctx>, StructValue<'ctx>, StructValue<'ctx>, StructValue<'ctx>>;

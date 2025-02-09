@@ -1,9 +1,5 @@
 use std::alloc::{alloc, dealloc, Layout};
 
-use crate::lang::backends::compiled::generic_value::ValueType;
-
-pub const IMPORTED_FUNCTIONS: [(&str, ValueType, &[ValueType], *const ()); 0] = [];
-
 /// Allocate memory for `size` bytes and return a pointer to the allocated memory.
 /// ## Safety
 /// This is marked unsafe becuase it allocates a raw pointer

@@ -4,13 +4,13 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     expressions::Expressions,
-    lang::expr::{BinaryOp, Expr, Literal, Node},
+    lang::{
+        expr::{BinaryOp, Expr, Literal, Node},
+        generic_value::{GenericList, GenericValue, ValueType},
+    },
 };
 
-use super::{
-    backend::{self, BackendValue, CodeBuilder},
-    generic_value::{GenericValue, ValueType},
-};
+use super::backend::{self, BackendValue, CodeBuilder};
 
 pub struct CodeGen<'a, Backend: backend::Backend> {
     backend: &'a Backend,
@@ -34,8 +34,55 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
     ) -> Result<BackendValue<'ctx, Backend>> {
         Ok(match expr {
             Node::Lit(Literal::Float(value)) => GenericValue::Number(builder.const_number(*value)),
-            Node::Lit(Literal::List(_)) => {
-                bail!("nrn")
+            Node::Lit(Literal::List(elements)) => {
+                match elements
+                    .iter()
+                    .map(|element| self.codegen_expr(builder, element))
+                    .try_fold(None, |acc: Option<GenericList<Vec<_>, Vec<_>>>, current| {
+                        Ok(match acc {
+                            None => match current? {
+                                GenericValue::Number(current) => {
+                                    let mut acc = Vec::new();
+                                    acc.push(current.clone());
+                                    Some(GenericList::NumberList(acc))
+                                }
+                                GenericValue::Point(current) => {
+                                    let mut acc = Vec::new();
+                                    acc.push(current.clone());
+                                    Some(GenericList::PointList(acc))
+                                }
+                                GenericValue::List(_) => {
+                                    bail!("List elements must not be Lists")
+                                }
+                            },
+                            Some(GenericList::NumberList(mut list)) => {
+                                if let GenericValue::Number(current) = current? {
+                                    list.push(current.clone());
+                                    Some(GenericList::NumberList(list))
+                                } else {
+                                    bail!("List elements must be of the same type")
+                                }
+                            }
+                            Some(GenericList::PointList(mut list)) => {
+                                if let GenericValue::Point(current) = current? {
+                                    list.push(current.clone());
+                                    Some(GenericList::PointList(list))
+                                } else {
+                                    bail!("List elements must be of the same type")
+                                }
+                            }
+                        })
+                    })? {
+                    Some(GenericList::NumberList(elements)) => {
+                        GenericValue::List(GenericList::NumberList(builder.number_list(&elements)?))
+                    }
+                    Some(GenericList::PointList(elements)) => {
+                        GenericValue::List(GenericList::PointList(builder.point_list(&elements)?))
+                    }
+                    None => {
+                        bail!("elements do not share the same type")
+                    }
+                }
             }
             Node::Lit(Literal::Point(x, y)) => {
                 let x = self.codegen_expr(builder, x)?;

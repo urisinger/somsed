@@ -5,25 +5,24 @@ pub mod lang;
 #[cfg(test)]
 mod tests {
 
-    use std::collections::HashMap;
+    use std::{collections::HashMap, fmt::Debug};
 
     use crate::{
         expressions::ExpressionId,
         lang::{
-            backends::llvm::jit::{JitValue, ListLayout},
-            parser::Expr,
+            codegen::backend::{
+                compile_expressions, compiled_exprs::CompiledExpr, jit::ExplicitFn,
+                jit::ExplicitJitFn, jit::ImplicitFn, jit::ImplicitJitFn, jit::JitValue,
+                jit::PointValue, llvm::jit::ListLayout, llvm::LLVMBackend,
+            },
+            expr::Expr,
+            generic_value::{GenericList, GenericValue},
         },
     };
 
     use super::expressions::Expressions;
-    use super::lang::backends::llvm::CompiledExpr;
     use anyhow::Result;
     use inkwell::context::Context;
-
-    use super::lang::backends::llvm::{
-        codegen::compile_all_exprs,
-        jit::{ExplicitJitFn, ImplicitJitFn, ImplicitJitListFn},
-    };
 
     macro_rules! generate_explicit_tests {
         (
@@ -41,7 +40,9 @@ mod tests {
                     let id = ExpressionId(0);
                     expressions.insert_expr(id, $input)?;
                     // Compile the expressions
-                    let compiled = compile_all_exprs(&context, &expressions);
+
+                        let backend = LLVMBackend::new(&context);
+                    let compiled = compile_expressions(&backend, &expressions);
 
                     // Handle compilation errors
                     if !compiled.errors.is_empty() {
@@ -61,7 +62,7 @@ mod tests {
                             };
 
                             let result = match lhs {
-                                ExplicitJitFn::Number(lhs) => unsafe { lhs.call(x)},
+                                ExplicitJitFn::Number(lhs) => lhs.call(x),
                                 ExplicitJitFn::List(_) => {
                                     panic!("List results are not supported in this test for '{}'", stringify!($name));
                                 }
@@ -145,7 +146,8 @@ CompiledExpr::Constant{value} => {
                     max_id += 1;
                 }
 
-                let compiled = compile_all_exprs(&context, &expressions);
+                        let backend = LLVMBackend::new(&context);
+                    let compiled = compile_expressions(&backend, &expressions);
 
                 if !compiled.errors.is_empty() {
                     panic!("Compilation errors: {:?}", compiled.errors);
@@ -175,8 +177,8 @@ CompiledExpr::Constant{value} => {
                             match (lhs, rhs) {
                                 // Both lhs and rhs return Number
                                 (ImplicitJitFn::Number(lhs_fn), ImplicitJitFn::Number(rhs_fn)) => {
-                                    let lhs_result = unsafe { lhs_fn.call(x, y) };
-                                    let rhs_result = unsafe { rhs_fn.call(x, y) };
+                                    let lhs_result = unsafe { lhs_fn.call_implicit(x, y) };
+                                    let rhs_result = unsafe { rhs_fn.call_implicit(x, y) };
                                     assert_eq!(
                                         lhs_result, rhs_result,
                                         "Test '{}' failed: lhs_result ({}) != rhs_result ({})",
@@ -186,42 +188,40 @@ CompiledExpr::Constant{value} => {
                                 // Both lhs and rhs return List
                                 (ImplicitJitFn::List(lhs_fn), ImplicitJitFn::List(rhs_fn)) => {
                                     // Call the functions
-                                    let lhs_list = match lhs_fn {
-                                        ImplicitJitListFn::Number(lhs_fn) => unsafe { lhs_fn.call(x, y) },
-                                        ImplicitJitListFn::Point(lhs_fn) => unsafe { lhs_fn.call(x, y) },
-                                    };
-                                    let rhs_list = match rhs_fn {
-                                        ImplicitJitListFn::Number(rhs_fn) => unsafe { rhs_fn.call(x, y) },
-                                        ImplicitJitListFn::Point(rhs_fn) => unsafe { rhs_fn.call(x, y) },
+                                    match (lhs_fn, rhs_fn){
+                                        (GenericList::NumberList(lhs_fn), GenericList::NumberList(rhs_fn)) =>
+                                    compare_lists::<f64>(&lhs_fn.call_implicit(x, y), &rhs_fn.call_implicit(x,y), name)?,
+                                        (GenericList::PointList(lhs_fn), GenericList::PointList(rhs_fn)) =>
+                                    compare_lists::<PointValue>(&lhs_fn.call_implicit(x, y), &rhs_fn.call_implicit(x,y), name)?,
+                                    _ => panic!("no")
                                     };
 
                                     // Compare the lists
-                                    compare_lists(&lhs_list, &rhs_list, name)?;
                                 }
                                 // lhs returns Number, rhs returns List
-                                (ImplicitJitFn::Number(lhs_fn), ImplicitJitFn::List(rhs_fn)) => {
-                                    let lhs_result = unsafe { lhs_fn.call(x, y) };
+                                (GenericValue::Number(lhs_fn), ImplicitJitFn::List(rhs_fn)) => {
+                                    let lhs_result =  lhs_fn.call_implicit(x, y) ;
                                     let rhs_list = match rhs_fn {
-                                        ImplicitJitListFn::Number(rhs_fn) => unsafe { rhs_fn.call(x, y) },
-                                        ImplicitJitListFn::Point(rhs_fn) => unsafe { rhs_fn.call(x, y) },
+                                        GenericList::NumberList(rhs_fn) =>  { rhs_fn.call_implicit(x, y) },
+                                        GenericList::PointList(rhs_fn) =>  { rhs_fn.call_implicit(x, y) },
                                     };
                                     // Compare lhs_result with each element of rhs_list
                                     compare_number_with_list(lhs_result, &rhs_list, name);
                                 }
                                 // lhs returns List, rhs returns Number
-                                (ImplicitJitFn::List(lhs_fn), ImplicitJitFn::Number(rhs_fn)) => {
+                                (GenericValue::List(lhs_fn), GenericValue::Number(rhs_fn)) => {
                                     let lhs_list = match lhs_fn {
-                                        ImplicitJitListFn::Number(lhs_fn) => unsafe { lhs_fn.call(x, y) },
-                                        ImplicitJitListFn::Point(lhs_fn) => unsafe { lhs_fn.call(x, y) },
+                                        GenericList::NumberList(lhs_fn) => { lhs_fn.call_implicit(x, y) },
+                                        GenericList::PointList(lhs_fn) => { lhs_fn.call_implicit(x, y) },
                                     };
-                                    let rhs_result = unsafe { rhs_fn.call(x, y) };
+                                    let rhs_result = { rhs_fn.call_implicit(x, y) };
                                     compare_number_with_list(rhs_result, &lhs_list, name);
                                 }
 
-                                (ImplicitJitFn::Point(lhs_fn), ImplicitJitFn::Point(rhs_fn)) => {
+                                (GenericValue::Point(lhs_fn), GenericValue::Point(rhs_fn)) => {
 
-                                    let lhs_result = unsafe { lhs_fn.call(x, y) };
-                                    let rhs_result = unsafe { rhs_fn.call(x, y) };
+                                    let lhs_result = { lhs_fn.call_implicit(x, y) };
+                                    let rhs_result = { rhs_fn.call_implicit(x, y) };
                                     assert_eq!(
                                         lhs_result, rhs_result,
                                         "Test '{}' failed: lhs_result ({:?}) != rhs_result ({:?})",
@@ -242,24 +242,27 @@ CompiledExpr::Constant{value} => {
         };
     }
 
-    fn compare_lists(lhs_list: &ListLayout, rhs_list: &ListLayout, name: &str) -> Result<()> {
+    fn compare_lists<T: PartialEq + Debug>(
+        lhs_list: &Vec<T>,
+        rhs_list: &Vec<T>,
+        name: &str,
+    ) -> Result<()> {
         // Ensure list sizes match
-        if lhs_list.size != rhs_list.size {
+        if lhs_list.len() != rhs_list.len() {
             panic!(
                 "Test '{}' failed: List sizes differ (lhs_size: {}, rhs_size: {})",
-                name, lhs_list.size, rhs_list.size
+                name,
+                lhs_list.len(),
+                rhs_list.len()
             );
         }
 
-        // Compare list elements
-        let lhs_ptr = lhs_list.ptr as *const f64;
-        let rhs_ptr = rhs_list.ptr as *const f64;
-        for i in 0..lhs_list.size as usize {
-            let lhs_elem = unsafe { *lhs_ptr.add(i) };
-            let rhs_elem = unsafe { *rhs_ptr.add(i) };
+        for i in 0..lhs_list.len() {
+            let lhs_elem = &lhs_list[i];
+            let rhs_elem = &rhs_list[i];
             if lhs_elem != rhs_elem {
                 panic!(
-                    "Test '{}' failed at index {}: lhs_elem ({}) != rhs_elem ({})",
+                    "Test '{}' failed at index {}: lhs_elem ({:?}) != rhs_elem ({:?})",
                     name, i, lhs_elem, rhs_elem
                 );
             }
@@ -268,20 +271,17 @@ CompiledExpr::Constant{value} => {
         Ok(())
     }
 
-    fn compare_number_with_list(number: f64, list: &ListLayout, name: &str) {
+    fn compare_number_with_list<T: PartialEq + Debug>(number: T, list: &Vec<T>, name: &str) {
         let mut list_vec = Vec::new();
-        let list_ptr = list.ptr as *const f64;
-        for i in 0..list.size as usize {
-            let elem = unsafe { *list_ptr.add(i) };
-
+        for elem in list {
             list_vec.push(elem);
-            if number == elem {
+            if number == *elem {
                 return;
             }
         }
 
         panic!(
-            "Test '{}' failed becuase no number is equal to it: number ({}) != list_elem ({:?})",
+            "Test '{}' failed becuase no number is equal to it: number ({:?}) != list_elem ({:?})",
             name, number, list_vec
         );
     }

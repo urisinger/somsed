@@ -1,10 +1,10 @@
-use crate::lang::backends::compiled::generic_value::{GenericList, GenericValue};
+use crate::lang::generic_value::{GenericList, GenericValue};
 
 pub type JitValue = GenericValue<f64, PointValue, Vec<f64>, Vec<PointValue>>;
 
 pub type JitListValue = GenericList<Vec<f64>, Vec<PointValue>>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PointValue {
     pub x: f64,
     pub y: f64,

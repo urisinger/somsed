@@ -1,14 +1,10 @@
 use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Result};
-use desmos_compiler::lang::backends::compiled::backend::compile_expressions;
-use desmos_compiler::lang::backends::compiled::backend::compiled_exprs::{
-    CompiledExpr, CompiledExprs,
-};
-use desmos_compiler::lang::backends::compiled::backend::jit::{
-    ExplicitFn, JitValue,
-};
-use desmos_compiler::lang::backends::compiled::backend::llvm::LLVMBackend;
-use desmos_compiler::lang::backends::compiled::generic_value::GenericValue;
+use desmos_compiler::lang::codegen::backend::compile_expressions;
+use desmos_compiler::lang::codegen::backend::compiled_exprs::{CompiledExpr, CompiledExprs};
+use desmos_compiler::lang::codegen::backend::jit::{ExplicitFn, JitValue};
+use desmos_compiler::lang::codegen::backend::llvm::LLVMBackend;
+use desmos_compiler::lang::generic_value::GenericValue;
 use flume::r#async::RecvStream;
 use iced::Vector;
 use std::collections::HashSet;

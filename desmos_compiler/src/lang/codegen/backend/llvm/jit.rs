@@ -1,8 +1,6 @@
 use inkwell::execution_engine::JitFunction;
 
-use crate::lang::backends::compiled::backend::jit::{
-    ExplicitFn, ExplicitJitFn, ImplicitFn, PointValue,
-};
+use crate::lang::codegen::backend::jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, PointValue};
 
 #[repr(C)]
 #[derive(Debug, Clone)]

@@ -17,12 +17,6 @@ pub struct Graph {
     state: GraphState,
 }
 
-impl Graph {
-    pub fn exprs(&self) -> &Vec<Expression> {
-        &self.state.expressions.list
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphState {

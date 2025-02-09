@@ -1,13 +1,18 @@
+use std::{error::Error, fmt::Debug};
+
 use anyhow::anyhow;
 use compiled_exprs::{CompiledExpr, CompiledExprs};
 use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
 
-use crate::{expressions::Expressions, lang::expr::Expr};
-
-use super::{
-    codegen::CodeGen,
-    generic_value::{GenericValue, ValueType},
+use crate::{
+    expressions::Expressions,
+    lang::{
+        expr::Expr,
+        generic_value::{GenericValue, ValueType},
+    },
 };
+
+use super::codegen::CodeGen;
 
 pub mod compiled_exprs;
 pub mod jit;
@@ -273,6 +278,10 @@ pub trait CodeBuilder<FnValue> {
 
     fn const_number(&self, number: f64) -> Self::NumberValue;
     fn point(&self, x: Self::NumberValue, y: Self::NumberValue) -> Self::PointValue;
+
+    fn number_list(&self, elements: &[Self::NumberValue]) -> anyhow::Result<Self::NumberListValue>;
+
+    fn point_list(&self, elements: &[Self::PointValue]) -> anyhow::Result<Self::PointListValue>;
 
     fn add(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
     fn sub(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;

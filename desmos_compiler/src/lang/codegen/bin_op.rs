@@ -1,11 +1,10 @@
 use anyhow::{anyhow, Result};
 
-use crate::lang::expr::BinaryOp;
+use crate::lang::{expr::BinaryOp, generic_value::GenericValue};
 
 use super::{
     backend::{self, BackendValue, CodeBuilder},
     codegen::CodeGen,
-    generic_value::GenericValue,
 };
 
 impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {

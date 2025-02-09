@@ -1,4 +1,3 @@
-use anyhow::{anyhow, Result};
 use builder::LLVMBuilder;
 use inkwell::{
     context::Context,
@@ -22,10 +21,10 @@ mod value;
 
 mod functions;
 
-use crate::lang::backends::compiled::generic_value::{GenericList, GenericValue, ValueType};
+use crate::lang::generic_value::{GenericList, GenericValue, ValueType};
 
 use super::{
-    jit::{ExplicitJitFn, ExplicitListJitFn, ImplicitJitFn, JitListValue, JitValue, PointValue},
+    jit::{ExplicitJitFn, ImplicitJitFn, JitValue, PointValue},
     Backend, CompiledBackend, ExecutionEngine,
 };
 
@@ -279,6 +278,7 @@ impl<'ctx> Backend for LLVMBackend<'ctx> {
             number_type: self.number_type,
             point_type: self.point_type,
             list_type: self.list_type,
+            i64_type: self.context.i64_type(),
         }
     }
 
