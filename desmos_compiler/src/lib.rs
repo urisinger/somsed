@@ -5,15 +5,14 @@ pub mod lang;
 #[cfg(test)]
 mod tests {
 
-    use std::{collections::HashMap, fmt::Debug};
+    use std::fmt::Debug;
 
     use crate::{
         expressions::ExpressionId,
         lang::{
             codegen::backend::{
                 compile_expressions, compiled_exprs::CompiledExpr, jit::ExplicitFn,
-                jit::ExplicitJitFn, jit::ImplicitFn, jit::JitValue, jit::PointValue,
-                llvm::LLVMBackend,
+                jit::ExplicitJitFn, jit::JitValue, jit::PointValue, llvm::LLVMBackend,
             },
             expr::Expr,
             generic_value::{GenericList, GenericValue},
@@ -185,60 +184,52 @@ mod tests {
                         (x, y)
                     };
 
-                    match (lhs, rhs) {
-                        (GenericValue::Number(lhs_fn), GenericValue::Number(rhs_fn)) => {
-                            let lhs_result = lhs_fn.call_implicit(x, y);
-                            let rhs_result = rhs_fn.call_implicit(x, y);
+                    match (lhs.call_implicit(x, y), rhs.call_implicit(x, y)) {
+                        (GenericValue::Number(lhs), GenericValue::Number(rhs)) => {
                             assert_eq!(
-                                lhs_result, rhs_result,
+                                lhs, rhs,
                                 "Test '{}' failed: lhs_result ({}) != rhs_result ({})",
-                                input, lhs_result, rhs_result
+                                input, lhs, rhs
                             );
                         }
-                        (GenericValue::List(lhs_fn), GenericValue::List(rhs_fn)) => {
-                            match (lhs_fn, rhs_fn) {
+                        (GenericValue::List(lhs), GenericValue::List(rhs)) => {
+                            match (lhs, rhs) {
                                 (
                                     GenericList::NumberList(lhs_fn),
                                     GenericList::NumberList(rhs_fn),
-                                ) => compare_lists::<f64>(
-                                    &lhs_fn.call_implicit(x, y),
-                                    &rhs_fn.call_implicit(x, y),
-                                    input,
-                                )?,
+                                ) => compare_lists::<f64>(&lhs_fn, &rhs_fn, input)?,
                                 (
                                     GenericList::PointList(lhs_fn),
                                     GenericList::PointList(rhs_fn),
-                                ) => compare_lists::<PointValue>(
-                                    &lhs_fn.call_implicit(x, y),
-                                    &rhs_fn.call_implicit(x, y),
-                                    input,
-                                )?,
+                                ) => compare_lists::<PointValue>(&lhs_fn, &rhs_fn, input)?,
                                 _ => panic!("Incompatible function types"),
                             };
                         }
-                        (GenericValue::Number(lhs_fn), GenericValue::List(rhs_fn)) => {
-                            let lhs_result = lhs_fn.call_implicit(x, y);
-                            let rhs_list = match rhs_fn {
-                                GenericList::NumberList(rhs_fn) => rhs_fn.call_implicit(x, y),
-                                GenericList::PointList(rhs_fn) => rhs_fn.call_implicit(x, y),
+                        (GenericValue::Number(lhs), GenericValue::List(rhs)) => {
+                            match rhs {
+                                GenericList::NumberList(rhs_list) => {
+                                    compare_number_with_list(lhs, &rhs_list, input)
+                                }
+                                GenericList::PointList(_) => {
+                                    panic!("Cant compare number with point list")
+                                }
                             };
-                            compare_number_with_list(lhs_result, &rhs_list, input);
                         }
-                        (GenericValue::List(lhs_fn), GenericValue::Number(rhs_fn)) => {
-                            let lhs_list = match lhs_fn {
-                                GenericList::NumberList(lhs_fn) => lhs_fn.call_implicit(x, y),
-                                GenericList::PointList(lhs_fn) => lhs_fn.call_implicit(x, y),
+                        (GenericValue::List(lhs), GenericValue::Number(rhs)) => {
+                            match lhs {
+                                GenericList::NumberList(lhs_list) => {
+                                    compare_number_with_list(rhs, &lhs_list, input)
+                                }
+                                GenericList::PointList(_) => {
+                                    panic!("Cant compare number with point list")
+                                }
                             };
-                            let rhs_result = rhs_fn.call_implicit(x, y);
-                            compare_number_with_list(rhs_result, &lhs_list, input);
                         }
-                        (GenericValue::Point(lhs_fn), GenericValue::Point(rhs_fn)) => {
-                            let lhs_result = lhs_fn.call_implicit(x, y);
-                            let rhs_result = rhs_fn.call_implicit(x, y);
+                        (GenericValue::Point(lhs), GenericValue::Point(rhs)) => {
                             assert_eq!(
-                                lhs_result, rhs_result,
+                                lhs, rhs,
                                 "Test '{}' failed: lhs_result ({:?}) != rhs_result ({:?})",
-                                input, lhs_result, rhs_result
+                                input, lhs, rhs
                             );
                         }
                         _ => panic!("Point cannot be compared with non-points"),
@@ -255,8 +246,8 @@ mod tests {
     }
 
     fn compare_lists<T: PartialEq + Debug>(
-        lhs_list: &Vec<T>,
-        rhs_list: &Vec<T>,
+        lhs_list: &[T],
+        rhs_list: &[T],
         name: &str,
     ) -> Result<()> {
         // Ensure list sizes match
@@ -283,7 +274,7 @@ mod tests {
         Ok(())
     }
 
-    fn compare_number_with_list<T: PartialEq + Debug>(number: T, list: &Vec<T>, name: &str) {
+    fn compare_number_with_list<T: PartialEq + Debug>(number: T, list: &[T], name: &str) {
         let mut list_vec = Vec::new();
         for elem in list {
             list_vec.push(elem);
