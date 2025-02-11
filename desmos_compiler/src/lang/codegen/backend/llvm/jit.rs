@@ -20,7 +20,7 @@ pub struct ExplicitLLVMFn<'ctx, T> {
     pub function: JitFunction<'ctx, unsafe extern "C" fn(f64) -> T>,
 }
 
-impl<'ctx, T> ExplicitFn<T> for ExplicitLLVMFn<'ctx, T> {
+impl<T> ExplicitFn<T> for ExplicitLLVMFn<'_, T> {
     fn call(&self, x: f64) -> T {
         unsafe { self.function.call(x) }
     }
@@ -30,7 +30,7 @@ pub struct ImplicitLLVMFn<'ctx, T> {
     pub function: JitFunction<'ctx, unsafe extern "C" fn(f64, f64) -> T>,
 }
 
-impl<'ctx, T> ImplicitFn<T> for ImplicitLLVMFn<'ctx, T> {
+impl<T> ImplicitFn<T> for ImplicitLLVMFn<'_, T> {
     fn call_implicit(&self, x: f64, y: f64) -> T {
         unsafe { self.function.call(x, y) }
     }
@@ -40,7 +40,7 @@ pub struct ExplicitLLVMListFn<'ctx> {
     pub function: JitFunction<'ctx, unsafe extern "C" fn(f64) -> ListLayout>,
 }
 
-impl<'ctx, T: Clone> ExplicitFn<Vec<T>> for ExplicitLLVMListFn<'ctx> {
+impl<T: Clone> ExplicitFn<Vec<T>> for ExplicitLLVMListFn<'_> {
     fn call(&self, x: f64) -> Vec<T> {
         let list_layout = unsafe { self.function.call(x) };
         convert_list(&list_layout)
@@ -51,7 +51,7 @@ pub struct ImplicitLLVMListFn<'ctx> {
     pub function: JitFunction<'ctx, unsafe extern "C" fn(f64, f64) -> ListLayout>,
 }
 
-impl<'ctx, T: Clone> ImplicitFn<Vec<T>> for ImplicitLLVMListFn<'ctx> {
+impl<T: Clone> ImplicitFn<Vec<T>> for ImplicitLLVMListFn<'_> {
     fn call_implicit(&self, x: f64, y: f64) -> Vec<T> {
         let list_layout = unsafe { self.function.call(x, y) };
         convert_list(&list_layout)

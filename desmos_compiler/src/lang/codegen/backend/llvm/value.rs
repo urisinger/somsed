@@ -37,7 +37,7 @@ impl<'ctx> LLVMValue<'ctx> {
     }
 }
 
-unsafe impl<'ctx> AsValueRef for LLVMValue<'ctx> {
+unsafe impl AsValueRef for LLVMValue<'_> {
     fn as_value_ref(&self) -> inkwell::llvm_sys::prelude::LLVMValueRef {
         match self {
             GenericValue::Number(t) => t.as_value_ref(),
@@ -93,7 +93,7 @@ impl<'ctx> LLVMType<'ctx> {
     }
 }
 
-unsafe impl<'ctx> AsTypeRef for LLVMType<'ctx> {
+unsafe impl AsTypeRef for LLVMType<'_> {
     fn as_type_ref(&self) -> LLVMTypeRef {
         match self {
             GenericValue::Number(t) => t.as_type_ref(),

@@ -233,7 +233,7 @@ impl<'ctx> Backend for LLVMBackend<'ctx> {
         return_type: &ValueType,
     ) -> Self::Builder<'a> {
         let fn_type = LLVMType::from_type(
-            &return_type,
+            return_type,
             self.number_type,
             self.point_type,
             self.list_type,

@@ -1,4 +1,4 @@
-#![allow(type_alias_bounds)]
+#![allow(type_alias_bounds, clippy::type_complexity)]
 pub mod expressions;
 pub mod lang;
 
@@ -12,8 +12,8 @@ mod tests {
         lang::{
             codegen::backend::{
                 compile_expressions, compiled_exprs::CompiledExpr, jit::ExplicitFn,
-                jit::ExplicitJitFn, jit::ImplicitFn, jit::ImplicitJitFn, jit::JitValue,
-                jit::PointValue, llvm::jit::ListLayout, llvm::LLVMBackend,
+                jit::ExplicitJitFn, jit::ImplicitFn, jit::JitValue, jit::PointValue,
+                llvm::LLVMBackend,
             },
             expr::Expr,
             generic_value::{GenericList, GenericValue},
@@ -25,221 +25,233 @@ mod tests {
     use inkwell::context::Context;
 
     macro_rules! generate_explicit_tests {
+    (
+        $(
+            $name:ident: $input:expr => $expected:expr $(, inputs = [$($input_vals:expr),*])?
+        );* $(;)?
+    ) => {
+        $(
+            #[test]
+            fn $name() -> Result<()> {
+                let inputs = vec![$($($input_vals),*)?];
+                run_explicit_test(stringify!($name), $input, $expected, inputs)
+            }
+        )*
+    };
+}
+
+    fn run_explicit_test(
+        test_name: &str,
+        input: &str,
+        expected: f64,
+        inputs: Vec<f64>,
+    ) -> Result<()> {
+        // Set up the context and expressions
+        let context = Context::create();
+        let mut expressions = Expressions::new();
+        let id = ExpressionId(0);
+        expressions.insert_expr(id, input)?;
+
+        // Compile the expressions
+        let backend = LLVMBackend::new(&context);
+        let compiled = compile_expressions(&backend, &expressions);
+
+        // Handle compilation errors
+        if !compiled.errors.is_empty() {
+            panic!(
+                "Compilation errors in '{}': {:?}",
+                test_name, compiled.errors
+            );
+        }
+
+        // Get the compiled expression
+        let expr = &compiled.compiled[&id];
+        match expr {
+            CompiledExpr::Explicit { lhs } => {
+                let x = inputs.last().copied().unwrap_or(0.0);
+
+                let result = match lhs {
+                    ExplicitJitFn::Number(lhs) => lhs.call(x),
+                    ExplicitJitFn::List(_) => {
+                        panic!(
+                            "List results are not supported in this test for '{}'",
+                            test_name
+                        );
+                    }
+                    ExplicitJitFn::Point(_) => {
+                        panic!(
+                            "Point results are not supported in this test for '{}'",
+                            test_name
+                        );
+                    }
+                };
+
+                assert_eq!(
+                    result, expected,
+                    "Test '{}' failed: expected {}, got {}",
+                    test_name, expected, result
+                );
+            }
+            CompiledExpr::Constant { value } => {
+                let result = match value {
+                    JitValue::Number(val) => *val,
+                    JitValue::List(_) => {
+                        panic!(
+                            "List results are not supported in this test for '{}'",
+                            test_name
+                        );
+                    }
+                    JitValue::Point(_) => {
+                        panic!(
+                            "Point results are not supported in this test for '{}'",
+                            test_name
+                        );
+                    }
+                };
+
+                assert_eq!(
+                    result, expected,
+                    "Test '{}' failed: expected {}, got {}",
+                    test_name, expected, result
+                );
+            }
+            _ => {
+                panic!(
+                    "Test '{}' failed: Expected an explicit expression but found an implicit one",
+                    test_name
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    macro_rules! generate_implicit_test_groups {
         (
             $(
-                $name:ident: $input:expr => $expected:expr $(, inputs = [$($input_vals:expr),*])?
-            );* $(;)?
+                $group_name:ident: {
+                    $(
+                        $input:expr, inputs = [$($input_vals:expr),*];
+                    )*
+                }
+            )*
         ) => {
             $(
                 #[test]
-                fn $name() -> Result<()> {
-
-                    // Set up the context and expressions
-                    let context = Context::create();
-                    let mut expressions = Expressions::new();
-                    let id = ExpressionId(0);
-                    expressions.insert_expr(id, $input)?;
-                    // Compile the expressions
-
-                        let backend = LLVMBackend::new(&context);
-                    let compiled = compile_expressions(&backend, &expressions);
-
-                    // Handle compilation errors
-                    if !compiled.errors.is_empty() {
-                        panic!("Compilation errors in '{}': {:?}", stringify!($name), compiled.errors);
-                    }
-
-
-
-                    // Get the compiled expression
-                    let expr = &compiled.compiled[&id];
-                    match expr {
-                        CompiledExpr::Explicit { lhs } => {
-                            // Use provided inputs or default to x = 0.0
-                            let x = {
-                                let mut inputs = vec![$($($input_vals),*)?];
-                                inputs.pop().unwrap_or(0.0)
-                            };
-
-                            let result = match lhs {
-                                ExplicitJitFn::Number(lhs) => lhs.call(x),
-                                ExplicitJitFn::List(_) => {
-                                    panic!("List results are not supported in this test for '{}'", stringify!($name));
-                                }
-
-                                ExplicitJitFn::Point(_) => {
-                                    panic!("Point results are not supported in this test for'{}'", stringify!($name));
-                                }
-
-                            };
-
-                            assert_eq!(result, $expected, "Test '{}' failed: expected {}, got {}", stringify!($name), $expected, result);
-                        }
-CompiledExpr::Constant{value} => {
-                            let result = match value{
-                                JitValue::Number(val) => {
-                                    *val
-                                }
-                                JitValue::List(_) => {
-                                    panic!("List results are not supported in this test for '{}'", stringify!($name));
-                                }
-                                JitValue::Point(_) => {
-                                    panic!("Point results are not supported in this test for'{}'", stringify!($name));
-                                }
-                            };
-
-                            assert_eq!(result, $expected, "Test '{}' failed: expected {}, got {}", stringify!($name), $expected, result);
-}
-
-                        _ =>{
-
-                            panic!("Test '{}' failed: Expected an explicit expression found implicit", stringify!($name));
-                        }
-                    }
-
-                    Ok(())
+                fn $group_name() -> Result<()> {
+                    // Create the group-wide input vector (if any)
+                    let test_cases = vec![$(($input, vec![$($input_vals),*])),*];
+                    run_implicit_tests(test_cases)
                 }
             )*
         };
     }
 
-    generate_explicit_tests! {
-        // Basic Arithmetic
-        test_simple_addition: "2 + 2" => 4.0;
-        test_subtraction: "7 - 4" => 3.0;
-        test_multiplication: "6 * 7" => 42.0;
-        test_division: "15 / 3" => 5.0;
-        test_power: "2^{4}" => 16.0;
-        test_combined_operations: "3 + 5 * 2 - 4 / 2" => 11.0;
+    fn run_implicit_tests(test_cases: Vec<(&str, Vec<f64>)>) -> Result<()> {
+        let context = Context::create();
+        let mut expressions = Expressions::new();
 
-        // Variables
-        test_variable: "x * 3" => 30.0, inputs = [10.0];
-        test_variable_addition: "x + 5" => 12.0, inputs = [7.0];
-        test_variable_power: "x^{2}" => 49.0, inputs = [7.0];
-        test_variable_division: "10 / x" => 2.0, inputs = [5.0];
-    }
+        for (i, (input, _)) in test_cases.iter().enumerate() {
+            expressions.insert_expr(ExpressionId(i as u32), input)?;
+        }
 
-    macro_rules! generate_implicit_tests {
-        (
-            $test_name:ident: {$(
-                $name:ident: $input:expr, inputs = [$($input_vals:expr),*];
-            )*}
-        ) => {
-            #[test]
-            fn $test_name() -> Result<()> {
-                // Collect test cases
-                let mut test_cases = Vec::new();
-                $(
-                    test_cases.push((stringify!($name), $input, vec![$($input_vals),*]));
-                )*
+        let backend = LLVMBackend::new(&context);
 
-                // Initialize the context and expressions
-                let context = Context::create();
-                let mut expressions = Expressions::new();
-                let mut expr_ids = HashMap::new();
+        let compiled = compile_expressions(&backend, &expressions);
 
-                let mut max_id = 0;
-                for (name, input, _) in &test_cases {
-                    let id = ExpressionId(max_id);
-                    expressions.insert_expr(id, input)?;
-                    expr_ids.insert(*name, id);
-                    max_id += 1;
-                }
+        if !compiled.errors.is_empty() {
+            panic!("Compilation errors: {:?}", compiled.errors);
+        }
 
-                        let backend = LLVMBackend::new(&context);
-                    let compiled = compile_expressions(&backend, &expressions);
+        for (i, (input, inputs)) in test_cases.iter().enumerate() {
+            let id = ExpressionId(i as u32);
+            let expr = &expressions
+                .exprs
+                .get(&id)
+                .expect("Expression not found")
+                .expr;
 
-                if !compiled.errors.is_empty() {
-                    panic!("Compilation errors: {:?}", compiled.errors);
-                }
-
-                for (name, _, inputs) in &test_cases {
-                    let id = expr_ids.get(name).expect("Expression ID not found");
-                    let expr = &expressions.exprs.get(id).expect("Expression not found").expr;
-
-                    if let Expr::FnDef { .. } = expr {
-                        continue;
-                    }
-
-
-                    let compiled_expr = &compiled.compiled[id];
-                    match compiled_expr {
-                        CompiledExpr::Implicit { lhs, rhs, .. } => {
-                            // Use provided inputs
-                            let (x, y) = {
-                                let mut inputs_iter = inputs.iter();
-                                let x = *inputs_iter.next().unwrap_or(&0.0);
-                                let y = *inputs_iter.next().unwrap_or(&0.0);
-                                (x, y)
-                            };
-
-                            // Match over (lhs, rhs) functions
-                            match (lhs, rhs) {
-                                // Both lhs and rhs return Number
-                                (ImplicitJitFn::Number(lhs_fn), ImplicitJitFn::Number(rhs_fn)) => {
-                                    let lhs_result = unsafe { lhs_fn.call_implicit(x, y) };
-                                    let rhs_result = unsafe { rhs_fn.call_implicit(x, y) };
-                                    assert_eq!(
-                                        lhs_result, rhs_result,
-                                        "Test '{}' failed: lhs_result ({}) != rhs_result ({})",
-                                        name, lhs_result, rhs_result
-                                    );
-                                }
-                                // Both lhs and rhs return List
-                                (ImplicitJitFn::List(lhs_fn), ImplicitJitFn::List(rhs_fn)) => {
-                                    // Call the functions
-                                    match (lhs_fn, rhs_fn){
-                                        (GenericList::NumberList(lhs_fn), GenericList::NumberList(rhs_fn)) =>
-                                    compare_lists::<f64>(&lhs_fn.call_implicit(x, y), &rhs_fn.call_implicit(x,y), name)?,
-                                        (GenericList::PointList(lhs_fn), GenericList::PointList(rhs_fn)) =>
-                                    compare_lists::<PointValue>(&lhs_fn.call_implicit(x, y), &rhs_fn.call_implicit(x,y), name)?,
-                                    _ => panic!("no")
-                                    };
-
-                                    // Compare the lists
-                                }
-                                // lhs returns Number, rhs returns List
-                                (GenericValue::Number(lhs_fn), ImplicitJitFn::List(rhs_fn)) => {
-                                    let lhs_result =  lhs_fn.call_implicit(x, y) ;
-                                    let rhs_list = match rhs_fn {
-                                        GenericList::NumberList(rhs_fn) =>  { rhs_fn.call_implicit(x, y) },
-                                        GenericList::PointList(rhs_fn) =>  { rhs_fn.call_implicit(x, y) },
-                                    };
-                                    // Compare lhs_result with each element of rhs_list
-                                    compare_number_with_list(lhs_result, &rhs_list, name);
-                                }
-                                // lhs returns List, rhs returns Number
-                                (GenericValue::List(lhs_fn), GenericValue::Number(rhs_fn)) => {
-                                    let lhs_list = match lhs_fn {
-                                        GenericList::NumberList(lhs_fn) => { lhs_fn.call_implicit(x, y) },
-                                        GenericList::PointList(lhs_fn) => { lhs_fn.call_implicit(x, y) },
-                                    };
-                                    let rhs_result = { rhs_fn.call_implicit(x, y) };
-                                    compare_number_with_list(rhs_result, &lhs_list, name);
-                                }
-
-                                (GenericValue::Point(lhs_fn), GenericValue::Point(rhs_fn)) => {
-
-                                    let lhs_result = { lhs_fn.call_implicit(x, y) };
-                                    let rhs_result = { rhs_fn.call_implicit(x, y) };
-                                    assert_eq!(
-                                        lhs_result, rhs_result,
-                                        "Test '{}' failed: lhs_result ({:?}) != rhs_result ({:?})",
-                                        name, lhs_result, rhs_result
-                                    );
-                                }
-                                _ => panic!("Point cannot be compared with non points")
-                            }
-                        }
-                        _ => {
-                            panic!("Test '{}' failed: Expected an implicit expression", name);
-                        }
-                    }
-                }
-
-                Ok(())
+            if let Expr::FnDef { .. } = expr {
+                continue;
             }
-        };
+
+            let compiled_expr = &compiled.compiled[&id];
+            match compiled_expr {
+                CompiledExpr::Implicit { lhs, rhs, .. } => {
+                    let (x, y) = {
+                        let mut inputs_iter = inputs.iter();
+                        let x = *inputs_iter.next().unwrap_or(&0.0);
+                        let y = *inputs_iter.next().unwrap_or(&0.0);
+                        (x, y)
+                    };
+
+                    match (lhs, rhs) {
+                        (GenericValue::Number(lhs_fn), GenericValue::Number(rhs_fn)) => {
+                            let lhs_result = lhs_fn.call_implicit(x, y);
+                            let rhs_result = rhs_fn.call_implicit(x, y);
+                            assert_eq!(
+                                lhs_result, rhs_result,
+                                "Test '{}' failed: lhs_result ({}) != rhs_result ({})",
+                                input, lhs_result, rhs_result
+                            );
+                        }
+                        (GenericValue::List(lhs_fn), GenericValue::List(rhs_fn)) => {
+                            match (lhs_fn, rhs_fn) {
+                                (
+                                    GenericList::NumberList(lhs_fn),
+                                    GenericList::NumberList(rhs_fn),
+                                ) => compare_lists::<f64>(
+                                    &lhs_fn.call_implicit(x, y),
+                                    &rhs_fn.call_implicit(x, y),
+                                    input,
+                                )?,
+                                (
+                                    GenericList::PointList(lhs_fn),
+                                    GenericList::PointList(rhs_fn),
+                                ) => compare_lists::<PointValue>(
+                                    &lhs_fn.call_implicit(x, y),
+                                    &rhs_fn.call_implicit(x, y),
+                                    input,
+                                )?,
+                                _ => panic!("Incompatible function types"),
+                            };
+                        }
+                        (GenericValue::Number(lhs_fn), GenericValue::List(rhs_fn)) => {
+                            let lhs_result = lhs_fn.call_implicit(x, y);
+                            let rhs_list = match rhs_fn {
+                                GenericList::NumberList(rhs_fn) => rhs_fn.call_implicit(x, y),
+                                GenericList::PointList(rhs_fn) => rhs_fn.call_implicit(x, y),
+                            };
+                            compare_number_with_list(lhs_result, &rhs_list, input);
+                        }
+                        (GenericValue::List(lhs_fn), GenericValue::Number(rhs_fn)) => {
+                            let lhs_list = match lhs_fn {
+                                GenericList::NumberList(lhs_fn) => lhs_fn.call_implicit(x, y),
+                                GenericList::PointList(lhs_fn) => lhs_fn.call_implicit(x, y),
+                            };
+                            let rhs_result = rhs_fn.call_implicit(x, y);
+                            compare_number_with_list(rhs_result, &lhs_list, input);
+                        }
+                        (GenericValue::Point(lhs_fn), GenericValue::Point(rhs_fn)) => {
+                            let lhs_result = lhs_fn.call_implicit(x, y);
+                            let rhs_result = rhs_fn.call_implicit(x, y);
+                            assert_eq!(
+                                lhs_result, rhs_result,
+                                "Test '{}' failed: lhs_result ({:?}) != rhs_result ({:?})",
+                                input, lhs_result, rhs_result
+                            );
+                        }
+                        _ => panic!("Point cannot be compared with non-points"),
+                    }
+                }
+                CompiledExpr::Explicit { .. } => {
+                    panic!("Test '{}' failed: Expected an implicit expression or a function/variable depth, found Explicit expression", input);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
     }
 
     fn compare_lists<T: PartialEq + Debug>(
@@ -286,52 +298,66 @@ CompiledExpr::Constant{value} => {
         );
     }
 
-    generate_implicit_tests! {
-        simple_tests: {
-            // Basic Relationships
-            test_implicit_addition: "x + y = 15", inputs = [10.0, 5.0];
-            test_implicit_multiplication: "x * y = 100", inputs = [10.0, 10.0];
-            test_implicit_power: "x^{2} = y", inputs = [3.0, 9.0];
-            test_implicit_division: "y / x = 5", inputs = [5.0, 25.0];
+    generate_implicit_test_groups! {
+        test_list_equality:{ "[x, y] = [1, 2]", inputs = [1.0, 2.0];}
 
-            // Pythagoras
-            test_implicit_pythagoras: "x^{2} + y^{2} = 25", inputs = [3.0, 4.0];
-            test_implicit_scaled_pythagoras: "3x^{2} + 4y^{2} = 171", inputs = [3.0, 6.0];
+        test_number_vs_list_rhs:{ "x = [1, 1]", inputs = [1.0];}
 
-            // Fractions
-            test_implicit_fraction: "\\frac{x}{y} = 2", inputs = [4.0, 2.0];
+        test_list_vs_number_lhs:{ "[x, x] = 2", inputs = [2.0];}
 
-            test_implicit_list: "[1,2,3]=[x+1,y,x+y+1]", inputs = [0.0,2.0];
+        test_function_list_equality:{
+            "f(n) = [n, n+1]", inputs = [];
+            "g(n) = [n, n+1]", inputs = [];
+            "f(3) = [3, 4]", inputs = [1.0];
+            "f(x+1) = g(x+1)", inputs = [1.0];
+        }
 
-            test_function_definition_square: "s(z) = z^{2}", inputs = [];
-            test_function_definition_fraction: "f(x, y) = \\frac{x + y}{2}", inputs = [];
+        test_number_vs_list_mismatch:{ "x = [1, 2]", inputs = [1.0];}
 
-            // Function Usage
-            test_square_function: "s(x) + s(y) = 25", inputs = [3.0, 4.0];
-            test_pythagoras_function: "p(x, y) = 5", inputs = [3.0, 4.0];
-            test_fraction_function: "f(x, y) = 5", inputs = [6.0, 4.0];
+        test_list_element_mismatch:{ "[x, y] = [1, 3]", inputs = [1.0, 3.0];}
+
+        test_big_list:{ "[x, y, x,x,x,x,x,x,x,x,x,x,x,x,x,x,x] = [1, 3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]", inputs = [1.0, 3.0];}
+
+        // Basic Relationships
+        test_implicit_addition:{ "x + y = 15", inputs = [10.0, 5.0];}
+        test_implicit_multiplication:{ "x * y = 100", inputs = [10.0, 10.0];}
+        test_implicit_power:{ "x^{2} = y", inputs = [3.0, 9.0];}
+        test_implicit_division:{ "y / x = 5", inputs = [5.0, 25.0];}
+
+        // Pythagoras
+        test_implicit_pythagoras:{ "x^{2} + y^{2} = 25", inputs = [3.0, 4.0];}
+        test_implicit_scaled_pythagoras:{ "3x^{2} + 4y^{2} = 171", inputs = [3.0, 6.0];}
+
+        // Fractions
+        test_implicit_fraction:{ "\\frac{x}{y} = 2", inputs = [4.0, 2.0];}
+
+        test_implicit_list:{ "[1,2,3]=[x+1,y,x+y+1]", inputs = [0.0,2.0];}
+
+        test_square_function:{
+            "s(z) = z^{2}", inputs = [];
+            "s(x) + s(y) = 25", inputs = [3.0, 4.0];
+        }
+
+        // Function Usage
+        test_fraction_function:{
+            "f(x, y) = \\frac{x + y}{2}", inputs = [];
+            "f(x, y) + 0 = 5", inputs = [6.0, 4.0];
         }
     }
 
-    generate_implicit_tests! {
-        list_tests: {
-            test_list_equality: "[x, y] = [1, 2]", inputs = [1.0, 2.0];
+    generate_explicit_tests! {
+        // Basic Arithmetic
+        test_simple_addition: "2 + 2" => 4.0;
+        test_subtraction: "7 - 4" => 3.0;
+        test_multiplication: "6 * 7" => 42.0;
+        test_division: "15 / 3" => 5.0;
+        test_power: "2^{4}" => 16.0;
+        test_combined_operations: "3 + 5 * 2 - 4 / 2" => 11.0;
 
-            test_number_vs_list_rhs: "x = [1, 1]", inputs = [1.0];
-
-            test_list_vs_number_lhs: "[x, x] = 2", inputs = [2.0];
-
-            test_function_definition_list: "f(n) = [n, n+1]", inputs = [];
-            test_function_definition_list_g: "g(n) = [n, n+1]", inputs = [];
-
-            test_function_list_usage: "f(3) = [3, 4]", inputs = [1.0];
-            test_function_list_equality: "f(x+1) = g(x+1)", inputs = [1.0];
-
-            test_number_vs_list_mismatch: "x = [1, 2]", inputs = [1.0];
-
-            test_list_element_mismatch: "[x, y] = [1, 3]", inputs = [1.0, 3.0];
-
-            test_big_list: "[x, y, x,x,x,x,x,x,x,x,x,x,x,x,x,x,x] = [1, 3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]", inputs = [1.0, 3.0];
-        }
+        // Variables
+        test_variable: "x * 3" => 30.0, inputs = [10.0];
+        test_variable_addition: "x + 5" => 12.0, inputs = [7.0];
+        test_variable_power: "x^{2}" => 49.0, inputs = [7.0];
+        test_variable_division: "10 / x" => 2.0, inputs = [5.0];
     }
 }

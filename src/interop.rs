@@ -66,7 +66,7 @@ where
     deserializer.deserialize_str(StrIntVisitor {})
 }
 pub struct StrIntVisitor {}
-impl<'de> Visitor<'de> for StrIntVisitor {
+impl Visitor<'_> for StrIntVisitor {
     type Value = u32;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -99,7 +99,7 @@ impl Serialize for Color {
     }
 }
 pub struct ColorVisitor {}
-impl<'de> Visitor<'de> for ColorVisitor {
+impl Visitor<'_> for ColorVisitor {
     type Value = Color;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -115,6 +115,6 @@ impl<'de> Visitor<'de> for ColorVisitor {
         }
         u32::from_str_radix(&v[1..], 16)
             .map_err(|_| E::custom("failed to parse hex literal"))
-            .map(|t| Color(t))
+            .map(Color)
     }
 }

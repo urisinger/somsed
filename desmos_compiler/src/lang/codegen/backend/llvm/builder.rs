@@ -30,7 +30,7 @@ pub struct LLVMBuilder<'module, 'ctx> {
     pub(crate) list_type: StructType<'ctx>,
 }
 
-impl<'module, 'ctx> LLVMBuilder<'module, 'ctx> {
+impl<'ctx> LLVMBuilder<'_, 'ctx> {
     fn build_intrinsic(
         &self,
         intrinsic_name: &str,
@@ -38,12 +38,12 @@ impl<'module, 'ctx> LLVMBuilder<'module, 'ctx> {
         label: &str,
     ) -> FloatValue<'ctx> {
         let intrinsic = Intrinsic::find(intrinsic_name)
-            .expect(&format!("Intrinsic {} must exist", intrinsic_name));
+            .unwrap_or_else(|| panic!("Intrinsic {} must exist", intrinsic_name));
 
         let arg_types: Vec<BasicTypeEnum<'ctx>> = vec![self.number_type.into(); args.len()];
 
         let declaration = intrinsic
-            .get_declaration(&self.module, &arg_types)
+            .get_declaration(self.module, &arg_types)
             .expect("Failed to get intrinsic declaration");
 
         self.builder
@@ -51,7 +51,7 @@ impl<'module, 'ctx> LLVMBuilder<'module, 'ctx> {
             .expect("Intrinsic call failed")
             .as_any_value_enum()
             .try_into()
-            .expect(&format!("Intrinsic {} did not return f64", intrinsic_name))
+            .unwrap_or_else(|_| panic!("Intrinsic {} did not return f64", intrinsic_name))
     }
 
     fn build_new_list<T: BasicValue<'ctx>>(
@@ -138,7 +138,7 @@ impl<'module, 'ctx> LLVMBuilder<'module, 'ctx> {
     }
 }
 
-impl<'module, 'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'module, 'ctx> {
+impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
     type NumberValue = FloatValue<'ctx>;
     type PointValue = StructValue<'ctx>;
 

@@ -202,13 +202,7 @@ impl Node {
                     Some(ValueType::Number(_)) => ListType::NumberList(()),
                     Some(ValueType::Point(_)) => ListType::PointList(()),
                     Some(ValueType::List(_)) => bail!("Lists in lists are not allowed"),
-                    None => {
-                        if elements.len() == 0 {
-                            ListType::NumberList(())
-                        } else {
-                            bail!("Lists can only contain one type")
-                        }
-                    }
+                    None => ListType::NumberList(()),
                 },
             ),
             Node::Lit(Literal::Point(..)) => ValueType::Point(()),

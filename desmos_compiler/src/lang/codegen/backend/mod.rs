@@ -1,5 +1,3 @@
-use std::{error::Error, fmt::Debug};
-
 use anyhow::anyhow;
 use compiled_exprs::{CompiledExpr, CompiledExprs};
 use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
@@ -12,7 +10,7 @@ use crate::{
     },
 };
 
-use super::codegen::CodeGen;
+use super::CodeGen;
 
 pub mod compiled_exprs;
 pub mod jit;
@@ -36,14 +34,14 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
 
                 let lhs_name = format!("implicit_{}_lhs", id.0);
                 _ = codegen
-                    .compile_fn(&lhs_name, &lhs, &args_t)
+                    .compile_fn(&lhs_name, lhs, &args_t)
                     .inspect_err(|e| {
                         compiled_exprs.errors.insert(*id, e.to_string());
                     });
 
                 let rhs_name = format!("implicit_{}_rhs", id.0);
                 _ = codegen
-                    .compile_fn(&rhs_name, &rhs, &args_t)
+                    .compile_fn(&rhs_name, rhs, &args_t)
                     .inspect_err(|e| {
                         compiled_exprs.errors.insert(*id, e.to_string());
                     });
@@ -57,7 +55,7 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                     vec![]
                 };
 
-                _ = codegen.compile_fn(&name, &lhs, &args).inspect_err(|e| {
+                _ = codegen.compile_fn(&name, lhs, &args).inspect_err(|e| {
                     compiled_exprs.errors.insert(*id, e.to_string());
                 });
             }
@@ -67,8 +65,8 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                 }
                 let name = format!("{}_number_number", ident);
 
-                let args = vec![];
-                _ = codegen.compile_fn(&name, &rhs, &args).inspect_err(|e| {
+                let args = [];
+                _ = codegen.compile_fn(&name, rhs, &args).inspect_err(|e| {
                     compiled_exprs.errors.insert(*id, e.to_string());
                 });
             }
@@ -130,7 +128,7 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                     });
 
                     execution_engine
-                        .eval(&name, &return_type)
+                        .eval(&name, return_type)
                         .ok_or_else(|| anyhow!("Could not find function {name}"))
                         .map(|value| CompiledExpr::Constant { value })
                 };
@@ -147,7 +145,7 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                     panic!("Return type not found for explicit function: {}", name);
                 });
 
-                let value = execution_engine.eval(&name, &return_type);
+                let value = execution_engine.eval(&name, return_type);
 
                 compiled_exprs.insert(
                     *id,
@@ -282,6 +280,11 @@ pub trait CodeBuilder<FnValue> {
     fn number_list(&self, elements: &[Self::NumberValue]) -> anyhow::Result<Self::NumberListValue>;
 
     fn point_list(&self, elements: &[Self::PointValue]) -> anyhow::Result<Self::PointListValue>;
+
+    /*fn map_list(
+        &self,
+        list: GenericList<Self::NumberListValue, Self::PointListValue>,
+    ) -> GenericList<Self::NumberListValue, Self::PointListValue>;*/
 
     fn add(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
     fn sub(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;

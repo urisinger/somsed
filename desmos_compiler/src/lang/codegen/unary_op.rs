@@ -4,10 +4,10 @@ use crate::lang::{expr::UnaryOp, generic_value::GenericValue};
 
 use super::{
     backend::{self, BackendValue, CodeBuilder},
-    codegen::CodeGen,
+    CodeGen,
 };
 
-impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
+impl<Backend: backend::Backend> CodeGen<'_, Backend> {
     pub(crate) fn codegen_unary_op<'ctx>(
         &self,
         builder: &Backend::Builder<'ctx>,
