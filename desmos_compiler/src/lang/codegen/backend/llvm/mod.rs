@@ -212,11 +212,12 @@ impl<'ctx> ExecutionEngine for LLVMExecutionEngine<'ctx> {
 impl<'ctx> CompiledBackend for LLVMBackend<'ctx> {
     type Engine = LLVMExecutionEngine<'ctx>;
     fn get_execution_engine(&self) -> Self::Engine {
-        self.module.print_to_stderr();
         let execution_engine = self
             .module
-            .create_jit_execution_engine(OptimizationLevel::None)
+            .create_jit_execution_engine(OptimizationLevel::Aggressive)
             .unwrap();
+
+        self.module.print_to_stderr();
 
         execution_engine.add_global_mapping(&self.malloc_function, malloc as usize);
 

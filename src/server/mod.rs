@@ -139,8 +139,10 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             points_explicit(&|n: f64| lhs.call(n), range, mid, 9, 14)
                                 .map(ComputationResult::Explicit)
                         }
-                        GenericValue::Point(_) => todo!(),
-                        GenericValue::List(_) => todo!(),
+                        GenericValue::Point(_) => {
+                            Err(anyhow!("Cant Graph explicit graph of points"))
+                        }
+                        GenericValue::List(_) => Err(anyhow!("Cant Graph explicit graph of list")),
                     },
                     Some(CompiledExpr::Constant { value }) => {
                         Ok(ComputationResult::Constant(value.clone()))

@@ -85,14 +85,16 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
             GenericList::PointList(s) => (s, self.point_type.as_basic_type_enum()),
         };
 
-        let size = input_struct
-            .get_field_at_index(size_field_index)
+        let size = self
+            .builder
+            .build_extract_value(*input_struct, size_field_index, "size")
             .context("Failed to extract size as int")?
             .into_int_value(); // Now extract as into_pointer_value
 
-        let input_pointer = input_struct
-            .get_field_at_index(pointer_field_index)
-            .context("Failed to get size field")?
+        let input_pointer = self
+            .builder
+            .build_extract_value(*input_struct, pointer_field_index, "pointer")
+            .context("Failed to get pointer field")?
             .into_pointer_value();
 
         let output_llvm_type = match output_ty {
@@ -101,10 +103,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         };
 
         let output_pointer = self.codegen_allocate(size, input_llvm_type)?;
-        let output_struct = self.list_type.const_named_struct(&[
-            size.as_basic_value_enum(),
-            output_pointer.as_basic_value_enum(),
-        ]); // Start with a zeroed struct
+        let output_struct = self.create_list(size, output_pointer);
 
         // 2) Prepare blocks for the loop
         let current_fn = self.function;
@@ -195,6 +194,24 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         Ok(output)
     }
 
+    fn create_list(&self, size: IntValue<'ctx>, pointer: PointerValue<'ctx>) -> StructValue<'ctx> {
+        let list_value = self.list_type.get_undef();
+
+        let list_value = self
+            .builder
+            .build_insert_value(list_value, size, 0, "list_value")
+            .expect("build in invalid state")
+            .into_struct_value();
+
+        let list_value = self
+            .builder
+            .build_insert_value(list_value, pointer, 1, "list_value")
+            .expect("build in invalid state")
+            .into_struct_value();
+
+        list_value
+    }
+
     fn codegen_allocate(
         &self,
         size: IntValue<'ctx>,
@@ -241,14 +258,16 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         let size_field_index = 0; // Adjust if needed
 
         // Extract pointer field
-        let pointer: PointerValue<'ctx> = struct_value
-            .get_field_at_index(pointer_field_index)
+        let pointer: PointerValue<'ctx> = self
+            .builder
+            .build_extract_value(struct_value, pointer_field_index, "pointer")
             .expect("Failed to get pointer field")
             .into_pointer_value();
 
         // Extract size field
-        let size_value = struct_value
-            .get_field_at_index(size_field_index)
+        let size_value = self
+            .builder
+            .build_extract_value(struct_value, size_field_index, "size")
             .expect("Failed to get size field")
             .into_int_value();
 

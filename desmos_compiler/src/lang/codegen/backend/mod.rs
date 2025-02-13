@@ -61,7 +61,8 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                 if !expr.used_idents.is_empty() {
                     continue;
                 }
-                let name = format!("{}_number_number", ident);
+                let name = ident.to_string();
+                println!("{:?}", expr.used_idents);
 
                 let args = [];
                 _ = codegen.compile_fn(&name, rhs, &args).inspect_err(|e| {
@@ -139,7 +140,8 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
                 if !expr.used_idents.is_empty() {
                     continue;
                 }
-                let name = format!("{}_number_number", ident);
+
+                let name = ident.to_string();
 
                 let return_type = codegen.return_types.get(&name).unwrap_or_else(|| {
                     panic!("Return type not found for explicit function: {}", name);

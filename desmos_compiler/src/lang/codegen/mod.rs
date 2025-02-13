@@ -154,6 +154,8 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
         let len = types.iter().map(|t| t.name().len() + 1).sum::<usize>() + name.len();
         let mut specialized_name = String::with_capacity(len);
 
+        specialized_name.push_str(name);
+
         for t in &types {
             specialized_name.push('_');
             specialized_name.push_str(t.name());

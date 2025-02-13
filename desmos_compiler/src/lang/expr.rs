@@ -218,7 +218,21 @@ impl Node {
                 let rhs_type = rhs.return_type(exprs, call_types)?;
                 binop_return_type(lhs_type, *op, rhs_type)?
             }
-            Node::UnaryOp { val, .. } => val.return_type(exprs, call_types)?,
+            Node::UnaryOp { val, op } => match val.return_type(exprs, call_types)? {
+                ValueType::Number(_) => match op {
+                    UnaryOp::Neg | UnaryOp::Sqrt | UnaryOp::Sin | UnaryOp::Cos | UnaryOp::Tan => {
+                        ValueType::Number(())
+                    }
+                    _ => bail!("Unary operation `{op:?}` is not implemented for number"),
+                },
+                ValueType::Point(_) => match op {
+                    UnaryOp::Neg => ValueType::Point(()),
+                    UnaryOp::GetX => ValueType::Number(()),
+                    UnaryOp::GetY => ValueType::Number(()),
+                    _ => bail!("Unary op {:?} cant be applied to point", op),
+                },
+                ValueType::List(_) => bail!("Unary op {:?} cant be applied to list", op),
+            },
             Node::FnCall { ident, args } => match exprs.get_expr(ident) {
                 Some(Expr::FnDef { rhs, .. }) => {
                     let call_types = args
@@ -315,6 +329,8 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnaryOp {
     Neg,
+    GetX,
+    GetY,
     Sqrt,
     Sin,
     Cos,

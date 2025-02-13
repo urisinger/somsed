@@ -124,19 +124,21 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
     }
 
     fn point(&self, x: Self::NumberValue, y: Self::NumberValue) -> Self::PointValue {
-        let mut point_value = self.point_type.get_undef();
-        point_value = self
+        let point = self.point_type.get_undef();
+
+        let point = self
             .builder
-            .build_insert_value(point_value, x, 0, "x")
-            .expect("index is less then amount of fields")
-            .into_struct_value();
-        point_value = self
-            .builder
-            .build_insert_value(point_value, y, 1, "y")
-            .expect("index is less then amount of fields")
+            .build_insert_value(point, x, 0, "point")
+            .expect("build in invalid state")
             .into_struct_value();
 
-        point_value
+        let point = self
+            .builder
+            .build_insert_value(point, y, 1, "point")
+            .expect("build in invalid state")
+            .into_struct_value();
+
+        point
     }
 
     fn number_list(&self, elements: &[Self::NumberValue]) -> Result<Self::NumberListValue> {

@@ -19,7 +19,10 @@ lazy_static! {
                 | Op::infix(Rule::div, Assoc::Left)
                 | Op::infix(Rule::paren, Assoc::Left))
             .op(Op::infix(Rule::relop, Assoc::Left))
-            .op(Op::postfix(Rule::fac) | Op::postfix(Rule::pow))
+            .op(Op::postfix(Rule::fac)
+                | Op::postfix(Rule::pow)
+                | Op::postfix(Rule::dot_x)
+                | Op::postfix(Rule::dot_y))
             .op(Op::prefix(Rule::neg)
                 | Op::prefix(Rule::sqrt)
                 | Op::prefix(Rule::sin)
@@ -212,8 +215,15 @@ fn parse_node(pairs: Pairs<Rule>) -> Result<Node> {
                         rhs: Box::new(parse_node(exponent.into_inner())?),
                     }
                 }
+                _ => Node::UnaryOp {
+                    val: Box::new(lhs?),
+                    op: match op.as_rule() {
+                        Rule::dot_x => UnaryOp::GetX,
+                        Rule::dot_y => UnaryOp::GetY,
 
-                _ => unreachable!(),
+                        _ => unreachable!(),
+                    },
+                },
             })
         })
         .map_infix(|lhs, op, rhs| {
