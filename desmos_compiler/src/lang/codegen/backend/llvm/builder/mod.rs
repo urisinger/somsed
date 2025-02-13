@@ -1,3 +1,5 @@
+mod list;
+
 use anyhow::{bail, Context, Result};
 use inkwell::{
     builder::Builder,
@@ -12,12 +14,13 @@ use inkwell::{
 
 use crate::lang::{
     codegen::backend::CodeBuilder,
-    generic_value::{GenericValue, ValueType},
+    generic_value::{GenericList, GenericValue, ListType, ValueType},
 };
 
 use super::value::LLVMValue;
 
 pub struct LLVMBuilder<'module, 'ctx> {
+    pub(crate) context: &'ctx inkwell::context::Context,
     pub(crate) module: &'module Module<'ctx>,
     pub(crate) builder: Builder<'ctx>,
 
@@ -52,89 +55,6 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
             .as_any_value_enum()
             .try_into()
             .unwrap_or_else(|_| panic!("Intrinsic {} did not return f64", intrinsic_name))
-    }
-
-    fn build_new_list<T: BasicValue<'ctx>>(
-        &self,
-        elements: &[T],
-        ty: ValueType,
-    ) -> Result<StructValue<'ctx>> {
-        let size = self.i64_type.const_int(elements.len() as u64, false);
-
-        let pointer = match ty {
-            GenericValue::Number(_) => {
-                self.codegen_allocate(size, self.number_type.as_basic_type_enum())?
-            }
-            GenericValue::Point(_) => {
-                self.codegen_allocate(size, self.point_type.as_basic_type_enum())?
-            }
-            GenericValue::List(_) => bail!("Cant craete lists of lists"),
-        };
-
-        // Initialize the struct with size and pointer
-        let mut list_value = self.list_type.const_zero(); // Start with a zeroed struct
-        list_value = self
-            .builder
-            .build_insert_value(list_value, size, 0, "list_size")
-            .expect("failed to inizlize struct")
-            .into_struct_value();
-        list_value = self
-            .builder
-            .build_insert_value(list_value, pointer, 1, "list_ptr")
-            .expect("failed to initlize struct")
-            .into_struct_value();
-
-        for (i, value) in elements.iter().enumerate() {
-            let value = value.as_basic_value_enum();
-            let element_ptr = unsafe {
-                self.builder.build_in_bounds_gep(
-                    value.get_type(),
-                    pointer,
-                    &[self.i64_type.const_int(i as u64, false)],
-                    &format!("element_ptr_{}", i),
-                )
-            };
-            self.builder.build_store(element_ptr?, value)?;
-        }
-
-        Ok(list_value)
-    }
-
-    pub fn codegen_allocate(
-        &self,
-        size: IntValue<'ctx>,
-        t: BasicTypeEnum<'ctx>,
-    ) -> Result<PointerValue<'ctx>> {
-        let element_size = t.size_of().context("List value must be sized")?; // Assuming 8 bytes per element (for f64)
-        let total_size = self
-            .builder
-            .build_int_mul(size, element_size, "total_size")?;
-
-        // Call malloc to allocate memory
-        let malloc_fn = self
-            .module
-            .get_function("malloc")
-            .expect("malloc should be defined"); // Assuming `malloc` is defined
-
-        let element_align = if let BasicTypeEnum::StructType(t) = t {
-            t.get_alignment()
-        } else {
-            element_size
-        };
-
-        let raw_ptr = self
-            .builder
-            .build_call(
-                malloc_fn,
-                &[total_size.into(), element_align.into()],
-                "malloc_call",
-            )?
-            .try_as_basic_value()
-            .left()
-            .expect("return type should not be void")
-            .into_pointer_value();
-
-        Ok(raw_ptr)
     }
 }
 
@@ -226,6 +146,32 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
 
     fn point_list(&self, elements: &[Self::PointValue]) -> Result<Self::PointListValue> {
         self.build_new_list(elements, GenericValue::Point(()))
+    }
+
+    fn get_x(&self, point: Self::PointValue) -> Self::NumberValue {
+        self.builder
+            .build_extract_value(point, 0, "point_x")
+            .expect("Point should always have x field")
+            .into_float_value()
+    }
+
+    fn get_y(&self, point: Self::PointValue) -> Self::NumberValue {
+        self.builder
+            .build_extract_value(point, 1, "point_y")
+            .expect("Point should always have y field")
+            .into_float_value()
+    }
+
+    fn map_list(
+        &self,
+        list: GenericList<Self::NumberListValue, Self::PointListValue>,
+        output_ty: ListType,
+        f: impl Fn(
+            GenericList<Self::NumberValue, Self::PointValue>,
+        ) -> GenericList<Self::NumberValue, Self::PointValue>,
+    ) -> GenericList<Self::NumberListValue, Self::PointListValue> {
+        self.codegen_list_map(&list, output_ty, f)
+            .expect("Something went wrong mapping list, this should not happen")
     }
 
     fn add(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {

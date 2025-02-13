@@ -12,7 +12,6 @@ pest_derive = "2.7.11"
 thiserror = "2.0.7"
 iced = {version = "0.13.1", features = ["canvas"]}
 desmos_compiler = {path = "./desmos_compiler"}
-clap = "4.5.23"
 reqwest = "0.12.9"
 flume = "0.11.1"
 serde = "1.0"
@@ -30,7 +29,6 @@ edition = "2021"
 [dependencies]
 desmos_compiler = {workspace = true}
 iced = {workspace = true}
-clap = {workspace = true}
 inkwell = {workspace = true}
 
 reqwest = {workspace = true} 

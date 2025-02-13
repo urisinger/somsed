@@ -10,10 +10,15 @@ pub enum GenericValue<NumberT, PointT, NumberListT, PointListT> {
     List(GenericList<NumberListT, PointListT>),
 }
 
+//Even tho is is name GenericList, it can also represent a generic scaler
 pub enum GenericList<NumberListT, PointListT> {
-    NumberList(NumberListT),
+    Number(NumberListT),
     PointList(PointListT),
 }
+
+pub type GenericScalerValue<NumberT, PointT> = GenericList<NumberT, PointT>;
+
+pub type ScalerType = GenericList<(), ()>;
 
 impl<NumberT, PointT, NumberListT, PointListT>
     GenericValue<NumberT, PointT, NumberListT, PointListT>
@@ -23,9 +28,17 @@ impl<NumberT, PointT, NumberListT, PointListT>
             Self::Number(_) => ValueType::Number(()),
             Self::Point(_) => ValueType::Point(()),
             Self::List(list) => ValueType::List(match list {
-                GenericList::NumberList(_) => ListType::NumberList(()),
+                GenericList::Number(_) => ListType::Number(()),
                 GenericList::PointList(_) => ListType::PointList(()),
             }),
+        }
+    }
+
+    pub fn lift_scaler(self) -> Option<GenericScalerValue<NumberT, PointT>> {
+        match self {
+            Self::Number(n) => Some(GenericScalerValue::Number(n)),
+            Self::Point(p) => Some(GenericScalerValue::PointList(p)),
+            Self::List(_) => None,
         }
     }
 }
@@ -45,7 +58,7 @@ impl<NumberT: Clone, PointT: Clone, NumberListT: Clone, PointListT: Clone> Clone
 impl<NumberListT: Clone, PointListT: Clone> Clone for GenericList<NumberListT, PointListT> {
     fn clone(&self) -> Self {
         match self {
-            GenericList::NumberList(nl) => GenericList::NumberList(nl.clone()),
+            GenericList::Number(nl) => GenericList::Number(nl.clone()),
             GenericList::PointList(pl) => GenericList::PointList(pl.clone()),
         }
     }
@@ -74,7 +87,7 @@ impl<NumberListT: PartialEq, PointListT: PartialEq> PartialEq
 {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (GenericList::NumberList(nl1), GenericList::NumberList(nl2)) => nl1 == nl2,
+            (GenericList::Number(nl1), GenericList::Number(nl2)) => nl1 == nl2,
             (GenericList::PointList(pl1), GenericList::PointList(pl2)) => pl1 == pl2,
             _ => false,
         }
@@ -98,7 +111,7 @@ impl<NumberT: Debug, PointT: Debug, NumberListT: Debug, PointListT: Debug> Debug
 impl<NumberListT: Debug, PointListT: Debug> Debug for GenericList<NumberListT, PointListT> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            GenericList::NumberList(nl) => write!(f, "NumberList({:?})", nl),
+            GenericList::Number(nl) => write!(f, "NumberList({:?})", nl),
             GenericList::PointList(pl) => write!(f, "PointList({:?})", pl),
         }
     }
@@ -117,7 +130,7 @@ impl ValueType {
 impl ListType {
     pub fn name(&self) -> &'static str {
         match self {
-            GenericList::NumberList(_) => "NumberList",
+            GenericList::Number(_) => "NumberList",
             GenericList::PointList(_) => "PointList",
         }
     }

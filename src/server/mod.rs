@@ -101,7 +101,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             event_tx
                                 .send(Event::Error {
                                     id,
-                                    message: format!("Failed to parse expression: {}", e),
+                                    message: format!("Failed to compile expression: {}", e),
                                 })
                                 .unwrap();
                         }

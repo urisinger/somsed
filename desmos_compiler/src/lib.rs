@@ -194,10 +194,9 @@ mod tests {
                         }
                         (GenericValue::List(lhs), GenericValue::List(rhs)) => {
                             match (lhs, rhs) {
-                                (
-                                    GenericList::NumberList(lhs_fn),
-                                    GenericList::NumberList(rhs_fn),
-                                ) => compare_lists::<f64>(&lhs_fn, &rhs_fn, input)?,
+                                (GenericList::Number(lhs_fn), GenericList::Number(rhs_fn)) => {
+                                    compare_lists::<f64>(&lhs_fn, &rhs_fn, input)?
+                                }
                                 (
                                     GenericList::PointList(lhs_fn),
                                     GenericList::PointList(rhs_fn),
@@ -207,7 +206,7 @@ mod tests {
                         }
                         (GenericValue::Number(lhs), GenericValue::List(rhs)) => {
                             match rhs {
-                                GenericList::NumberList(rhs_list) => {
+                                GenericList::Number(rhs_list) => {
                                     compare_number_with_list(lhs, &rhs_list, input)
                                 }
                                 GenericList::PointList(_) => {
@@ -217,7 +216,7 @@ mod tests {
                         }
                         (GenericValue::List(lhs), GenericValue::Number(rhs)) => {
                             match lhs {
-                                GenericList::NumberList(lhs_list) => {
+                                GenericList::Number(lhs_list) => {
                                     compare_number_with_list(rhs, &lhs_list, input)
                                 }
                                 GenericList::PointList(_) => {

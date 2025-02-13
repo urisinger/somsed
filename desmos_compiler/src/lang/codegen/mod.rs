@@ -46,7 +46,7 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
                         let current = current?;
                         Ok(match (acc, current) {
                             (None, GenericValue::Number(val)) => {
-                                Some(GenericList::NumberList(vec![val.clone()]))
+                                Some(GenericList::Number(vec![val.clone()]))
                             }
                             (None, GenericValue::Point(val)) => {
                                 Some(GenericList::PointList(vec![val.clone()]))
@@ -55,32 +55,29 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
                                 bail!("List elements must not be Lists")
                             }
 
-                            (
-                                Some(GenericList::NumberList(mut list)),
-                                GenericValue::Number(val),
-                            ) => {
+                            (Some(GenericList::Number(mut list)), GenericValue::Number(val)) => {
                                 list.push(val.clone());
-                                Some(GenericList::NumberList(list))
+                                Some(GenericList::Number(list))
                             }
                             (Some(GenericList::PointList(mut list)), GenericValue::Point(val)) => {
                                 list.push(val.clone());
                                 Some(GenericList::PointList(list))
                             }
 
-                            (Some(GenericList::NumberList(_)), GenericValue::Point(_))
+                            (Some(GenericList::Number(_)), GenericValue::Point(_))
                             | (Some(GenericList::PointList(_)), GenericValue::Number(_))
                             | (_, GenericValue::List(_)) => {
                                 bail!("List elements must be of the same type")
                             }
                         })
                     })? {
-                    Some(GenericList::NumberList(elements)) => {
-                        GenericValue::List(GenericList::NumberList(builder.number_list(&elements)?))
+                    Some(GenericList::Number(elements)) => {
+                        GenericValue::List(GenericList::Number(builder.number_list(&elements)?))
                     }
                     Some(GenericList::PointList(elements)) => {
                         GenericValue::List(GenericList::PointList(builder.point_list(&elements)?))
                     }
-                    None => GenericValue::List(GenericList::NumberList(builder.number_list(&[])?)),
+                    None => GenericValue::List(GenericList::Number(builder.number_list(&[])?)),
                 }
             }
             Node::Lit(Literal::Point(x, y)) => {

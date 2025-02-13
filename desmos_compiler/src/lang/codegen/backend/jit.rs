@@ -47,7 +47,7 @@ impl<NumberListFn: ExplicitFn<Vec<f64>>, PointListFn: ExplicitFn<Vec<PointValue>
 {
     pub fn call(&self, x: f64) -> JitListValue {
         match self {
-            GenericList::NumberList(f) => JitListValue::NumberList(f.call(x)),
+            GenericList::Number(f) => JitListValue::Number(f.call(x)),
             GenericList::PointList(f) => JitListValue::PointList(f.call(x)),
         }
     }
@@ -89,7 +89,7 @@ impl<NumberListFn: ImplicitFn<Vec<f64>>, PointListFn: ImplicitFn<Vec<PointValue>
 {
     pub fn call_implicit(&self, x: f64, y: f64) -> JitListValue {
         match self {
-            GenericList::NumberList(f) => JitListValue::NumberList(f.call_implicit(x, y)),
+            GenericList::Number(f) => JitListValue::Number(f.call_implicit(x, y)),
             GenericList::PointList(f) => JitListValue::PointList(f.call_implicit(x, y)),
         }
     }

@@ -23,8 +23,8 @@ impl<'ctx> LLVMValue<'ctx> {
                 _ => None,
             },
             GenericValue::List(arr_type) => match arr_type {
-                GenericList::NumberList(_) => match value {
-                    BasicValueEnum::StructValue(l) => Some(Self::List(GenericList::NumberList(l))),
+                GenericList::Number(_) => match value {
+                    BasicValueEnum::StructValue(l) => Some(Self::List(GenericList::Number(l))),
                     _ => None,
                 },
 
@@ -42,7 +42,7 @@ unsafe impl AsValueRef for LLVMValue<'_> {
         match self {
             GenericValue::Number(t) => t.as_value_ref(),
             GenericValue::Point(s)
-            | GenericValue::List(GenericList::NumberList(s))
+            | GenericValue::List(GenericList::Number(s))
             | GenericValue::List(GenericList::PointList(s)) => s.as_value_ref(),
         }
     }
@@ -53,7 +53,7 @@ unsafe impl<'ctx> AnyValue<'ctx> for LLVMValue<'ctx> {
         match self {
             GenericValue::Number(t) => AnyValueEnum::FloatValue(*t),
             GenericValue::Point(s)
-            | GenericValue::List(GenericList::NumberList(s))
+            | GenericValue::List(GenericList::Number(s))
             | GenericValue::List(GenericList::PointList(s)) => AnyValueEnum::StructValue(*s),
         }
     }
@@ -64,8 +64,35 @@ unsafe impl<'ctx> BasicValue<'ctx> for LLVMValue<'ctx> {
         match self {
             GenericValue::Number(t) => BasicValueEnum::FloatValue(*t),
             GenericValue::Point(s)
-            | GenericValue::List(GenericList::NumberList(s))
+            | GenericValue::List(GenericList::Number(s))
             | GenericValue::List(GenericList::PointList(s)) => BasicValueEnum::StructValue(*s),
+        }
+    }
+}
+
+unsafe impl AsValueRef for GenericList<FloatValue<'_>, StructValue<'_>> {
+    fn as_value_ref(&self) -> inkwell::llvm_sys::prelude::LLVMValueRef {
+        match self {
+            GenericList::Number(s) => s.as_value_ref(),
+            GenericList::PointList(s) => s.as_value_ref(),
+        }
+    }
+}
+
+unsafe impl<'ctx> AnyValue<'ctx> for GenericList<FloatValue<'ctx>, StructValue<'ctx>> {
+    fn as_any_value_enum(&self) -> AnyValueEnum<'ctx> {
+        match self {
+            GenericList::Number(s) => AnyValueEnum::FloatValue(*s),
+            GenericList::PointList(s) => AnyValueEnum::StructValue(*s),
+        }
+    }
+}
+
+unsafe impl<'ctx> BasicValue<'ctx> for GenericList<FloatValue<'ctx>, StructValue<'ctx>> {
+    fn as_basic_value_enum(&self) -> BasicValueEnum<'ctx> {
+        match self {
+            GenericList::Number(s) => BasicValueEnum::FloatValue(*s),
+            GenericList::PointList(s) => BasicValueEnum::StructValue(*s),
         }
     }
 }
@@ -83,8 +110,8 @@ impl<'ctx> LLVMType<'ctx> {
         match ty {
             GenericValue::Number(()) => GenericValue::Number(number_type),
             GenericValue::Point(()) => GenericValue::Point(point_type),
-            GenericValue::List(GenericList::NumberList(())) => {
-                GenericValue::List(GenericList::NumberList(list_type))
+            GenericValue::List(GenericList::Number(())) => {
+                GenericValue::List(GenericList::Number(list_type))
             }
             GenericValue::List(GenericList::PointList(())) => {
                 GenericValue::List(GenericList::PointList(list_type))
@@ -98,7 +125,7 @@ unsafe impl AsTypeRef for LLVMType<'_> {
         match self {
             GenericValue::Number(t) => t.as_type_ref(),
             GenericValue::Point(s)
-            | GenericValue::List(GenericList::NumberList(s))
+            | GenericValue::List(GenericList::Number(s))
             | GenericValue::List(GenericList::PointList(s)) => s.as_type_ref(),
         }
     }
@@ -109,7 +136,7 @@ unsafe impl<'ctx> AnyType<'ctx> for LLVMType<'ctx> {
         match self {
             GenericValue::Number(t) => AnyTypeEnum::FloatType(*t),
             GenericValue::Point(s)
-            | GenericValue::List(GenericList::NumberList(s))
+            | GenericValue::List(GenericList::Number(s))
             | GenericValue::List(GenericList::PointList(s)) => AnyTypeEnum::StructType(*s),
         }
     }
@@ -120,7 +147,7 @@ unsafe impl<'ctx> BasicType<'ctx> for LLVMType<'ctx> {
         match self {
             GenericValue::Number(t) => BasicTypeEnum::FloatType(*t),
             GenericValue::Point(s)
-            | GenericValue::List(GenericList::NumberList(s))
+            | GenericValue::List(GenericList::Number(s))
             | GenericValue::List(GenericList::PointList(s)) => BasicTypeEnum::StructType(*s),
         }
     }

@@ -6,7 +6,7 @@ use crate::{
     expressions::Expressions,
     lang::{
         expr::Expr,
-        generic_value::{GenericValue, ValueType},
+        generic_value::{GenericList, GenericValue, ListType, ValueType},
     },
 };
 
@@ -20,8 +20,6 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
     backend: &BackendT,
     exprs: &Expressions,
 ) -> CompiledExprs<BackendT::Engine> {
-    let execution_engine = backend.get_execution_engine();
-
     let mut codegen = CodeGen::new(backend, exprs);
 
     let mut compiled_exprs: CompiledExprs<BackendT::Engine> = CompiledExprs::new();
@@ -73,6 +71,8 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
             _ => {}
         }
     }
+
+    let execution_engine = backend.get_execution_engine();
 
     // Only then we can retrive the functions
     for (id, expr) in &exprs.exprs {
@@ -281,10 +281,17 @@ pub trait CodeBuilder<FnValue> {
 
     fn point_list(&self, elements: &[Self::PointValue]) -> anyhow::Result<Self::PointListValue>;
 
-    /*fn map_list(
+    fn map_list(
         &self,
         list: GenericList<Self::NumberListValue, Self::PointListValue>,
-    ) -> GenericList<Self::NumberListValue, Self::PointListValue>;*/
+        output_ty: ListType,
+        f: impl Fn(
+            GenericList<Self::NumberValue, Self::PointValue>,
+        ) -> GenericList<Self::NumberValue, Self::PointValue>,
+    ) -> GenericList<Self::NumberListValue, Self::PointListValue>;
+
+    fn get_x(&self, point: Self::PointValue) -> Self::NumberValue;
+    fn get_y(&self, point: Self::PointValue) -> Self::NumberValue;
 
     fn add(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
     fn sub(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;

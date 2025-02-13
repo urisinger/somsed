@@ -32,6 +32,10 @@ pub struct LLVMBackend<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
 
+    malloc_function: FunctionValue<'ctx>,
+
+    free_function: FunctionValue<'ctx>,
+
     number_type: FloatType<'ctx>,
     point_type: StructType<'ctx>,
     list_type: StructType<'ctx>,
@@ -39,9 +43,31 @@ pub struct LLVMBackend<'ctx> {
 
 impl<'ctx> LLVMBackend<'ctx> {
     pub fn new(context: &'ctx Context) -> Self {
+        let module = context.create_module("main");
+        let malloc_type = context.ptr_type(AddressSpace::default()).fn_type(
+            &[context.i64_type().into(), context.i64_type().into()],
+            false,
+        );
+
+        let malloc_function = module.add_function("malloc", malloc_type, None);
+
+        let free_type = context.void_type().fn_type(
+            &[
+                context.ptr_type(AddressSpace::default()).into(),
+                context.i64_type().into(),
+                context.i64_type().into(),
+            ],
+            false,
+        );
+
+        let free_function = module.add_function("free", free_type, None);
+
         Self {
             context,
-            module: context.create_module("main"),
+            module,
+
+            malloc_function,
+            free_function,
 
             number_type: context.f64_type(),
             point_type: context.struct_type(
@@ -98,13 +124,11 @@ impl<'ctx> ExecutionEngine for LLVMExecutionEngine<'ctx> {
                     })
                     .ok(),
                 GenericValue::List(list_t) => match list_t {
-                    GenericList::NumberList(_) => {
-                        self.execution_engine.get_function(name).ok().map(
-                            |f: JitFunction<unsafe extern "C" fn() -> ListLayout>| {
-                                GenericValue::List(GenericList::NumberList(convert_list(&f.call())))
-                            },
-                        )
-                    }
+                    GenericList::Number(_) => self.execution_engine.get_function(name).ok().map(
+                        |f: JitFunction<unsafe extern "C" fn() -> ListLayout>| {
+                            GenericValue::List(GenericList::Number(convert_list(&f.call())))
+                        },
+                    ),
 
                     GenericList::PointList(_) => self.execution_engine.get_function(name).ok().map(
                         |f: JitFunction<unsafe extern "C" fn() -> ListLayout>| {
@@ -138,9 +162,9 @@ impl<'ctx> ExecutionEngine for LLVMExecutionEngine<'ctx> {
                 GenericValue::Point(ExplicitLLVMFn { function: func })
             }
             GenericValue::List(generic_list) => GenericValue::List(match generic_list {
-                GenericList::NumberList(_) => {
+                GenericList::Number(_) => {
                     let func = unsafe { self.execution_engine.get_function(name).ok()? };
-                    GenericList::NumberList(ExplicitLLVMListFn { function: func })
+                    GenericList::Number(ExplicitLLVMListFn { function: func })
                 }
                 GenericList::PointList(_) => {
                     let func = unsafe { self.execution_engine.get_function(name).ok()? };
@@ -172,9 +196,9 @@ impl<'ctx> ExecutionEngine for LLVMExecutionEngine<'ctx> {
                 GenericValue::Point(ImplicitLLVMFn { function: func })
             }
             GenericValue::List(generic_list) => GenericValue::List(match generic_list {
-                GenericList::NumberList(_) => {
+                GenericList::Number(_) => {
                     let func = unsafe { self.execution_engine.get_function(name).ok()? };
-                    GenericList::NumberList(ImplicitLLVMListFn { function: func })
+                    GenericList::Number(ImplicitLLVMListFn { function: func })
                 }
                 GenericList::PointList(_) => {
                     let func = unsafe { self.execution_engine.get_function(name).ok()? };
@@ -188,33 +212,15 @@ impl<'ctx> ExecutionEngine for LLVMExecutionEngine<'ctx> {
 impl<'ctx> CompiledBackend for LLVMBackend<'ctx> {
     type Engine = LLVMExecutionEngine<'ctx>;
     fn get_execution_engine(&self) -> Self::Engine {
+        self.module.print_to_stderr();
         let execution_engine = self
             .module
             .create_jit_execution_engine(OptimizationLevel::None)
             .unwrap();
 
-        let malloc_type = self.context.ptr_type(AddressSpace::default()).fn_type(
-            &[
-                self.context.i64_type().into(),
-                self.context.i64_type().into(),
-            ],
-            false,
-        );
+        execution_engine.add_global_mapping(&self.malloc_function, malloc as usize);
 
-        let malloc_function = self.module.add_function("malloc", malloc_type, None);
-        execution_engine.add_global_mapping(&malloc_function, malloc as usize);
-
-        let free_type = self.context.void_type().fn_type(
-            &[
-                self.context.ptr_type(AddressSpace::default()).into(),
-                self.context.i64_type().into(),
-                self.context.i64_type().into(),
-            ],
-            false,
-        );
-
-        let free_function = self.module.add_function("free", free_type, None);
-        execution_engine.add_global_mapping(&free_function, free as usize);
+        execution_engine.add_global_mapping(&self.free_function, free as usize);
         LLVMExecutionEngine { execution_engine }
     }
 }
@@ -271,6 +277,7 @@ impl<'ctx> Backend for LLVMBackend<'ctx> {
             .collect();
 
         LLVMBuilder {
+            context: self.context,
             module: &self.module,
             builder,
             function,

@@ -222,7 +222,7 @@ fn parse_node(pairs: Pairs<Rule>) -> Result<Node> {
                 op: match op.as_rule() {
                     Rule::add => BinaryOp::Add,
                     Rule::sub => BinaryOp::Sub,
-                    Rule::mul => BinaryOp::Mul,
+                    Rule::mul => BinaryOp::Dot,
                     Rule::div => BinaryOp::Div,
                     Rule::pow => BinaryOp::Pow,
                     Rule::paren => BinaryOp::Paran,
@@ -282,7 +282,7 @@ mod tests {
                     op: BinaryOp::Add,
                     rhs: Box::new(Node::Lit(Literal::Float(2.0))),
                 }),
-                op: BinaryOp::Mul,
+                op: BinaryOp::Dot,
                 rhs: Box::new(Node::Lit(Literal::Float(3.0))),
             }
         },
@@ -311,7 +311,7 @@ mod tests {
             args: vec!["a".to_string(), "b".to_string()],
             rhs: Node::BinOp {
                 lhs: Box::new(Node::FnArg { index: 0 }),
-                op: BinaryOp::Mul,
+                op: BinaryOp::Dot,
                 rhs: Box::new(Node::FnArg { index: 1 }),
             }
         },
@@ -357,7 +357,7 @@ mod tests {
                         op: BinaryOp::Add,
                         rhs: Box::new(Node::Lit(Literal::Float(4.0))),
                     }),
-                    op: BinaryOp::Mul,
+                    op: BinaryOp::Dot,
                     rhs: Box::new(Node::Lit(Literal::Float(2.0))),
                 })
             }
