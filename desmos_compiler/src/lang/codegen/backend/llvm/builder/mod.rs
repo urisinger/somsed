@@ -1,14 +1,13 @@
 mod list;
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use inkwell::{
     builder::Builder,
     intrinsics::Intrinsic,
     module::Module,
-    types::{BasicType, BasicTypeEnum, FloatType, IntType, StructType},
+    types::{BasicTypeEnum, FloatType, IntType, StructType},
     values::{
-        AnyValue, BasicMetadataValueEnum, BasicValue, FloatValue, FunctionValue, IntValue,
-        PointerValue, StructValue,
+        AnyValue, BasicMetadataValueEnum, BasicValue, FloatValue, FunctionValue, StructValue,
     },
 };
 
