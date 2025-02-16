@@ -19,7 +19,7 @@ enum ScalarPosition {
 impl<Backend: backend::Backend> CodeGen<'_, Backend> {
     pub fn codegen_binary_op<'ctx>(
         &self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         lhs: BackendValue<'ctx, Backend>,
         op: BinaryOp,
         rhs: BackendValue<'ctx, Backend>,
@@ -79,7 +79,7 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
 
     fn distribute_mixed_op<'ctx>(
         &self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         list: GenericList<
             <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberListValue,
             <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::PointListValue,
@@ -90,7 +90,7 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
         output_ty: ListType,
     ) -> Result<BackendValue<'ctx, Backend>> {
         // Use the builder's map_list helper to iterate over list elements.
-        let result_list = builder.map_list(list, output_ty, |elem| {
+        let result_list = builder.map_list(list, output_ty, |builder, elem| {
             // For each list element, lift the scalar into a list element
             // and call the simple binary op with arguments swapped if needed.
             let lifted = match &scalar {
@@ -116,7 +116,7 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
 
     fn codegen_simple_binary_op<'ctx>(
         &self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         lhs: GenericList<
             <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
             <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::PointValue,
@@ -138,8 +138,11 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
             }
             (GenericList::Number(lhs), GenericList::PointList(rhs)) => match op {
                 BinaryOp::Dot | BinaryOp::Paran => {
-                    let x = builder.mul(lhs.clone(), builder.get_x(rhs.clone()));
-                    let y = builder.mul(lhs, builder.get_y(rhs));
+                    let x = builder.get_x(rhs.clone());
+                    let x = builder.mul(lhs.clone(), x);
+
+                    let y = builder.get_y(rhs);
+                    let y = builder.mul(lhs, y);
 
                     GenericList::PointList(builder.point(x, y))
                 }
@@ -147,14 +150,20 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
             },
             (GenericList::PointList(lhs), GenericList::Number(rhs)) => match op {
                 BinaryOp::Dot | BinaryOp::Paran => {
-                    let x = builder.mul(builder.get_x(lhs.clone()), rhs.clone());
-                    let y = builder.mul(builder.get_y(lhs), rhs);
+                    let x = builder.get_x(lhs.clone());
+                    let x = builder.mul(x, rhs.clone());
+
+                    let y = builder.get_y(lhs);
+                    let y = builder.mul(y, rhs);
 
                     GenericList::PointList(builder.point(x, y))
                 }
                 BinaryOp::Div => {
-                    let x = builder.div(builder.get_x(lhs.clone()), rhs.clone());
-                    let y = builder.div(builder.get_y(lhs), rhs);
+                    let x = builder.get_x(lhs.clone());
+                    let x = builder.div(x, rhs.clone());
+
+                    let y = builder.get_y(lhs);
+                    let y = builder.div(y, rhs);
 
                     GenericList::PointList(builder.point(x, y))
                 }
@@ -162,16 +171,24 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
             },
             (GenericList::PointList(lhs), GenericList::PointList(rhs)) => match op {
                 BinaryOp::Add => {
-                    let x = builder.add(builder.get_x(lhs.clone()), builder.get_x(rhs.clone()));
+                    let lhs_x = builder.get_x(lhs.clone());
+                    let rhs_x = builder.get_x(rhs.clone());
+                    let x = builder.add(lhs_x, rhs_x);
 
-                    let y = builder.add(builder.get_y(lhs), builder.get_y(rhs));
+                    let lhs_y = builder.get_y(lhs.clone());
+                    let rhs_y = builder.get_y(rhs.clone());
+                    let y = builder.add(lhs_y, rhs_y);
 
                     GenericList::PointList(builder.point(x, y))
                 }
                 BinaryOp::Sub => {
-                    let x = builder.sub(builder.get_x(lhs.clone()), builder.get_x(rhs.clone()));
+                    let lhs_x = builder.get_x(lhs.clone());
+                    let rhs_x = builder.get_x(rhs.clone());
+                    let x = builder.sub(lhs_x, rhs_x);
 
-                    let y = builder.sub(builder.get_y(lhs), builder.get_y(rhs));
+                    let lhs_y = builder.get_y(lhs.clone());
+                    let rhs_y = builder.get_y(rhs.clone());
+                    let y = builder.sub(lhs_y, rhs_y);
 
                     GenericList::PointList(builder.point(x, y))
                 }
@@ -182,7 +199,7 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
 
     fn codegen_binary_number_op<'ctx>(
         &self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         lhs: <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
         op: BinaryOp,
         rhs: <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,

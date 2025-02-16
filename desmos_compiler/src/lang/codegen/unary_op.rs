@@ -10,7 +10,7 @@ use super::{
 impl<Backend: backend::Backend> CodeGen<'_, Backend> {
     pub(crate) fn codegen_unary_op<'ctx>(
         &self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         lhs: BackendValue<'ctx, Backend>,
         op: UnaryOp,
     ) -> Result<BackendValue<'ctx, Backend>> {
@@ -20,8 +20,10 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
             }
             GenericValue::Point(lhs) => match op {
                 UnaryOp::Neg => {
-                    let x = builder.neg(builder.get_x(lhs.clone()));
-                    let y = builder.neg(builder.get_y(lhs));
+                    let x = builder.get_x(lhs.clone());
+                    let x = builder.neg(x);
+                    let y = builder.get_y(lhs);
+                    let y = builder.neg(y);
                     GenericValue::Point(builder.point(x, y))
                 }
                 UnaryOp::GetX => GenericValue::Number(builder.get_x(lhs)),
@@ -34,7 +36,7 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
 
     pub(crate) fn codegen_unary_number_op<'ctx>(
         &self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         lhs: <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
         op: UnaryOp,
     ) -> Result<<Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue> {

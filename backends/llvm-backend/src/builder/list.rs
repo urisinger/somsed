@@ -70,11 +70,10 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
     ///
     /// Returns the same `StructValue<'ctx>`, after in-place modification.
     pub fn codegen_list_map(
-        &mut self,
+        &self,
         list: &GenericList<StructValue<'ctx>, StructValue<'ctx>>,
         output_ty: ListType,
         transform: impl Fn(
-            &mut Self,
             GenericList<FloatValue<'ctx>, StructValue<'ctx>>,
         ) -> GenericList<FloatValue<'ctx>, StructValue<'ctx>>,
     ) -> Result<GenericList<StructValue<'ctx>, StructValue<'ctx>>> {
@@ -162,7 +161,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
             _ => unreachable!("Something went wrong with the types, should not happen"),
         };
 
-        let transformed_value = transform(self, loaded_value);
+        let transformed_value = transform(loaded_value);
 
         // Compute pointer for storing transformed value
         let store_ptr = unsafe {

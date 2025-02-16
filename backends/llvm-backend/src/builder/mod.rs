@@ -72,10 +72,10 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
     }
 
     fn get_arg(
-        &mut self,
+        &self,
         index: usize,
     ) -> Option<
-        &GenericValue<
+        GenericValue<
             Self::NumberValue,
             Self::PointValue,
             Self::NumberListValue,
@@ -86,7 +86,7 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
     }
 
     fn call_fn(
-        &mut self,
+        &self,
         function: FunctionValue<'ctx>,
         values: &[GenericValue<
             Self::NumberValue,
@@ -119,11 +119,11 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
         .expect("function must return a valid type")
     }
 
-    fn const_number(&mut self, number: f64) -> Self::NumberValue {
+    fn const_number(&self, number: f64) -> Self::NumberValue {
         self.number_type.const_float(number)
     }
 
-    fn point(&mut self, x: Self::NumberValue, y: Self::NumberValue) -> Self::PointValue {
+    fn point(&self, x: Self::NumberValue, y: Self::NumberValue) -> Self::PointValue {
         let point = self.point_type.get_undef();
 
         let point = self
@@ -141,22 +141,22 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
         point
     }
 
-    fn number_list(&mut self, elements: &[Self::NumberValue]) -> Result<Self::NumberListValue> {
+    fn number_list(&self, elements: &[Self::NumberValue]) -> Result<Self::NumberListValue> {
         self.build_new_list(elements, GenericValue::Number(()))
     }
 
-    fn point_list(&mut self, elements: &[Self::PointValue]) -> Result<Self::PointListValue> {
+    fn point_list(&self, elements: &[Self::PointValue]) -> Result<Self::PointListValue> {
         self.build_new_list(elements, GenericValue::Point(()))
     }
 
-    fn get_x(&mut self, point: Self::PointValue) -> Self::NumberValue {
+    fn get_x(&self, point: Self::PointValue) -> Self::NumberValue {
         self.builder
             .build_extract_value(point, 0, "point_x")
             .expect("Point should always have x field")
             .into_float_value()
     }
 
-    fn get_y(&mut self, point: Self::PointValue) -> Self::NumberValue {
+    fn get_y(&self, point: Self::PointValue) -> Self::NumberValue {
         self.builder
             .build_extract_value(point, 1, "point_y")
             .expect("Point should always have y field")
@@ -164,11 +164,10 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
     }
 
     fn map_list(
-        &mut self,
+        &self,
         list: GenericList<Self::NumberListValue, Self::PointListValue>,
         output_ty: ListType,
         f: impl Fn(
-            &mut Self,
             GenericList<Self::NumberValue, Self::PointValue>,
         ) -> GenericList<Self::NumberValue, Self::PointValue>,
     ) -> GenericList<Self::NumberListValue, Self::PointListValue> {
@@ -176,53 +175,53 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
             .expect("Something went wrong mapping list, this should not happen")
     }
 
-    fn add(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
+    fn add(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
         self.builder
             .build_float_add(lhs, rhs, "add_float")
             .expect("invalid builder state")
     }
 
-    fn sub(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
+    fn sub(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
         self.builder
             .build_float_sub(lhs, rhs, "sub_float")
             .expect("invalid builder state")
     }
 
-    fn mul(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
+    fn mul(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
         self.builder
             .build_float_mul(lhs, rhs, "mul_float")
             .expect("invalid builder state")
     }
 
-    fn div(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
+    fn div(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
         self.builder
             .build_float_div(lhs, rhs, "div_float")
             .expect("invalid builder state")
     }
 
-    fn pow(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
+    fn pow(&self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
         self.build_intrinsic("llvm.pow", &[lhs.into(), rhs.into()], "pow")
     }
 
-    fn neg(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
+    fn neg(&self, lhs: Self::NumberValue) -> Self::NumberValue {
         self.builder
             .build_float_neg(lhs, "neg")
             .expect("invalid builder state")
     }
 
-    fn sqrt(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
+    fn sqrt(&self, lhs: Self::NumberValue) -> Self::NumberValue {
         self.build_intrinsic("llvm.sqrt", &[lhs.into()], "sqrt")
     }
 
-    fn sin(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
+    fn sin(&self, lhs: Self::NumberValue) -> Self::NumberValue {
         self.build_intrinsic("llvm.sin", &[lhs.into()], "sin")
     }
 
-    fn cos(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
+    fn cos(&self, lhs: Self::NumberValue) -> Self::NumberValue {
         self.build_intrinsic("llvm.cos", &[lhs.into()], "cos")
     }
 
-    fn tan(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
+    fn tan(&self, lhs: Self::NumberValue) -> Self::NumberValue {
         self.build_intrinsic("llvm.tan", &[lhs.into()], "tan")
     }
 }

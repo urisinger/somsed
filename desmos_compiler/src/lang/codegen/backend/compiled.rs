@@ -1,21 +1,60 @@
-pub mod compiled_exprs;
-pub mod cranelift;
-pub mod jit;
-pub mod llvm;
-
 use anyhow::anyhow;
-use compiled_exprs::{CompiledExpr, CompiledExprs};
-use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
 
 use crate::{
     expressions::Expressions,
-    lang::{
-        expr::Expr,
-        generic_value::{GenericList, GenericValue, ListType, ValueType},
-    },
+    lang::{codegen::CodeGen, expr::Expr, generic_value::ValueType},
 };
 
-use super::CodeGen;
+use super::{
+    compiled_exprs::{CompiledExpr, CompiledExprs},
+    jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue},
+    Backend,
+};
+
+pub trait CompiledBackend: Backend {
+    type Engine: ExecutionEngine;
+    fn get_execution_engine(&self) -> Self::Engine;
+}
+
+pub trait ExecutionEngine {
+    type ExplicitNumberFn: ExplicitFn<f64>;
+    type ExplicitPointFn: ExplicitFn<PointValue>;
+    type ExplicitNumberListFn: ExplicitFn<Vec<f64>>;
+    type ExplicitPointListFn: ExplicitFn<Vec<PointValue>>;
+
+    type ImplicitNumberFn: ImplicitFn<f64>;
+    type ImplicitPointFn: ImplicitFn<PointValue>;
+    type ImplicitNumberListFn: ImplicitFn<Vec<f64>>;
+    type ImplicitPointListFn: ImplicitFn<Vec<PointValue>>;
+
+    fn eval(&self, name: &str, ty: &ValueType) -> Option<JitValue>;
+
+    fn get_explicit_fn(
+        &self,
+        name: &str,
+        ty: &ValueType,
+    ) -> Option<
+        ExplicitJitFn<
+            Self::ExplicitNumberFn,
+            Self::ExplicitPointFn,
+            Self::ExplicitNumberListFn,
+            Self::ExplicitPointListFn,
+        >,
+    >;
+
+    fn get_implicit_fn(
+        &self,
+        name: &str,
+        ty: &ValueType,
+    ) -> Option<
+        ImplicitJitFn<
+            Self::ImplicitNumberFn,
+            Self::ImplicitPointFn,
+            Self::ImplicitNumberListFn,
+            Self::ImplicitPointListFn,
+        >,
+    >;
+}
 
 pub fn compile_expressions<BackendT: CompiledBackend>(
     backend: &BackendT,
@@ -162,155 +201,4 @@ pub fn compile_expressions<BackendT: CompiledBackend>(
     }
 
     compiled_exprs
-}
-
-pub type BackendValue<'a, BackendT> = GenericValue<
-    <<BackendT as Backend>::Builder<'a>as CodeBuilder< <BackendT as Backend>::FnValue>>::NumberValue,
-    <<BackendT as Backend>::Builder<'a> as CodeBuilder< <BackendT as Backend>::FnValue>>::PointValue,
-    <<BackendT as Backend>::Builder<'a> as CodeBuilder< <BackendT as Backend>::FnValue>>::NumberListValue,
-    <<BackendT as Backend>::Builder<'a> as CodeBuilder< <BackendT as Backend>::FnValue>>::PointListValue,
->;
-
-pub trait ExecutionEngine {
-    type ExplicitNumberFn: ExplicitFn<f64>;
-    type ExplicitPointFn: ExplicitFn<PointValue>;
-    type ExplicitNumberListFn: ExplicitFn<Vec<f64>>;
-    type ExplicitPointListFn: ExplicitFn<Vec<PointValue>>;
-
-    type ImplicitNumberFn: ImplicitFn<f64>;
-    type ImplicitPointFn: ImplicitFn<PointValue>;
-    type ImplicitNumberListFn: ImplicitFn<Vec<f64>>;
-    type ImplicitPointListFn: ImplicitFn<Vec<PointValue>>;
-
-    fn eval(&self, name: &str, ty: &ValueType) -> Option<JitValue>;
-
-    fn get_explicit_fn(
-        &self,
-        name: &str,
-        ty: &ValueType,
-    ) -> Option<
-        ExplicitJitFn<
-            Self::ExplicitNumberFn,
-            Self::ExplicitPointFn,
-            Self::ExplicitNumberListFn,
-            Self::ExplicitPointListFn,
-        >,
-    >;
-
-    fn get_implicit_fn(
-        &self,
-        name: &str,
-        ty: &ValueType,
-    ) -> Option<
-        ImplicitJitFn<
-            Self::ImplicitNumberFn,
-            Self::ImplicitPointFn,
-            Self::ImplicitNumberListFn,
-            Self::ImplicitPointListFn,
-        >,
-    >;
-}
-
-pub trait CompiledBackend: Backend {
-    type Engine: ExecutionEngine;
-    fn get_execution_engine(&self) -> Self::Engine;
-}
-
-pub trait Backend {
-    type FnValue;
-    type Builder<'a>: CodeBuilder<Self::FnValue>
-    where
-        Self: 'a;
-
-    fn get_builder<'a>(
-        &'a self,
-        name: &str,
-        types: &[ValueType],
-        return_type: &ValueType,
-    ) -> Self::Builder<'a>;
-
-    fn get_fn(&self, name: &str) -> Option<Self::FnValue>;
-}
-
-pub trait CodeBuilder<FnValue> {
-    type NumberValue: Clone;
-    type PointValue: Clone;
-    type NumberListValue: Clone;
-    type PointListValue: Clone;
-
-    fn build_return(
-        self,
-        value: GenericValue<
-            Self::NumberValue,
-            Self::PointValue,
-            Self::NumberListValue,
-            Self::PointListValue,
-        >,
-    ) -> FnValue;
-
-    fn get_arg(
-        &mut self,
-        index: usize,
-    ) -> Option<
-        &GenericValue<
-            Self::NumberValue,
-            Self::PointValue,
-            Self::NumberListValue,
-            Self::PointListValue,
-        >,
-    >;
-
-    fn call_fn(
-        &mut self,
-        function: FnValue,
-        values: &[GenericValue<
-            Self::NumberValue,
-            Self::PointValue,
-            Self::NumberListValue,
-            Self::PointListValue,
-        >],
-        ret: &ValueType,
-    ) -> GenericValue<
-        Self::NumberValue,
-        Self::PointValue,
-        Self::NumberListValue,
-        Self::PointListValue,
-    >;
-
-    fn const_number(&mut self, number: f64) -> Self::NumberValue;
-    fn point(&mut self, x: Self::NumberValue, y: Self::NumberValue) -> Self::PointValue;
-
-    fn number_list(
-        &mut self,
-        elements: &[Self::NumberValue],
-    ) -> anyhow::Result<Self::NumberListValue>;
-
-    fn point_list(&mut self, elements: &[Self::PointValue])
-        -> anyhow::Result<Self::PointListValue>;
-
-    fn map_list(
-        &mut self,
-        list: GenericList<Self::NumberListValue, Self::PointListValue>,
-        output_ty: ListType,
-        f: impl Fn(
-            &mut Self,
-            GenericList<Self::NumberValue, Self::PointValue>,
-        ) -> GenericList<Self::NumberValue, Self::PointValue>,
-    ) -> GenericList<Self::NumberListValue, Self::PointListValue>;
-
-    fn get_x(&mut self, point: Self::PointValue) -> Self::NumberValue;
-    fn get_y(&mut self, point: Self::PointValue) -> Self::NumberValue;
-
-    fn add(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
-    fn sub(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
-    fn mul(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
-    fn div(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
-    fn pow(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue;
-
-    fn neg(&mut self, lhs: Self::NumberValue) -> Self::NumberValue;
-    fn sqrt(&mut self, lhs: Self::NumberValue) -> Self::NumberValue;
-
-    fn sin(&mut self, lhs: Self::NumberValue) -> Self::NumberValue;
-    fn cos(&mut self, lhs: Self::NumberValue) -> Self::NumberValue;
-    fn tan(&mut self, lhs: Self::NumberValue) -> Self::NumberValue;
 }

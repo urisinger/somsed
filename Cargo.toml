@@ -6,6 +6,9 @@ members = [
 [workspace.dependencies]
 anyhow = "1.0.86"
 inkwell = { version = "0.5.0", features = ["llvm18-0", "llvm18-0-prefer-dynamic"] }
+cranelift = "0.116"
+cranelift-jit = "0.116"
+cranelift-module = "0.116"
 lazy_static = "1.5.0"
 pest = "2.7.11"
 pest_derive = "2.7.11"

@@ -1,0 +1,9 @@
+[package]
+name = "llvm-backend"
+
+version = {workspace = true}
+edition = {workspace = true}
+
+[dependencies]
+inkwell = {workspace = true}
+desmos_compiler = {path = "../../desmos_compiler"}

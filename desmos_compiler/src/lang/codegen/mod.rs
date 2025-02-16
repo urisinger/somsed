@@ -33,7 +33,7 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
 
     pub fn codegen_expr<'ctx>(
         &mut self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         expr: &Node,
     ) -> Result<BackendValue<'ctx, Backend>> {
         Ok(match expr {
@@ -130,7 +130,7 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
 
     pub fn get_var<'ctx>(
         &mut self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         ident: &str,
     ) -> Result<BackendValue<'ctx, Backend>> {
         match self
@@ -145,7 +145,7 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
 
     pub fn codegen_fn_call<'ctx>(
         &mut self,
-        builder: &Backend::Builder<'ctx>,
+        builder: &mut Backend::Builder<'ctx>,
         name: &str,
         args: &[BackendValue<'ctx, Backend>],
     ) -> Result<BackendValue<'ctx, Backend>> {
@@ -194,11 +194,11 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
     ) -> Result<Backend::FnValue> {
         let specialized_name = specialized_name.into();
         let ret = node.return_type(self.exprs, types)?;
-        let builder = self.backend.get_builder(&specialized_name, types, &ret);
+        let mut builder = self.backend.get_builder(&specialized_name, types, &ret);
 
         self.return_types.insert(specialized_name, ret);
 
-        let value = self.codegen_expr(&builder, node)?;
+        let value = self.codegen_expr(&mut builder, node)?;
 
         Ok(builder.build_return(value))
     }
