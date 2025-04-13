@@ -88,7 +88,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             continue;
                         }
 
-                        let mut backend = CraneliftBackend::new();
+                        let mut backend = CraneliftBackend::new().unwrap();
                         compiled_exprs = backend.compile_expressions(&expressions);
 
                         for &id in expressions.exprs.keys() {

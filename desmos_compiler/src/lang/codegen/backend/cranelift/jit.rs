@@ -1,4 +1,148 @@
-use crate::lang::codegen::backend::jit::{ExplicitFn, ImplicitFn};
+use cranelift_module::{FuncOrDataId, Module};
+
+use crate::lang::{
+    codegen::backend::{
+        jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue},
+        ExecutionEngine,
+    },
+    generic_value::{GenericList, GenericValue, ValueType},
+};
+
+use super::CraneliftBackend;
+
+impl ExecutionEngine for CraneliftBackend {
+    type ExplicitNumberFn = ExplicitFnImpl<f64>;
+    type ExplicitPointFn = ExplicitFnImpl<PointValue>;
+    type ExplicitNumberListFn = ExplicitListFnImpl;
+    type ExplicitPointListFn = ExplicitListFnImpl;
+
+    type ImplicitNumberFn = ImplicitFnImpl<f64>;
+    type ImplicitPointFn = ImplicitFnImpl<PointValue>;
+    type ImplicitNumberListFn = ImplicitListFnImpl;
+    type ImplicitPointListFn = ImplicitListFnImpl;
+
+    fn eval(&self, name: &str, ty: &ValueType) -> Option<JitValue> {
+        let func_id = if let FuncOrDataId::Func(id) = self.module.get_name(name)? {
+            id
+        } else {
+            return None;
+        };
+
+        unsafe {
+            Some(match ty {
+                GenericValue::Number(_) => GenericValue::Number(std::mem::transmute::<
+                    *const u8,
+                    unsafe extern "C" fn() -> f64,
+                >(
+                    self.module.get_finalized_function(func_id),
+                )()),
+
+                GenericValue::Point(_) => GenericValue::Point(std::mem::transmute::<
+                    *const u8,
+                    unsafe extern "C" fn() -> PointValue,
+                >(
+                    self.module.get_finalized_function(func_id),
+                )()),
+                GenericValue::List(list_t) => GenericValue::List(match list_t {
+                    GenericList::Number(_) => {
+                        GenericList::Number(convert_list(&std::mem::transmute::<
+                            *const u8,
+                            unsafe extern "C" fn() -> ListLayout,
+                        >(
+                            self.module.get_finalized_function(func_id),
+                        )()))
+                    }
+                    GenericList::PointList(_) => {
+                        GenericList::PointList(convert_list(&std::mem::transmute::<
+                            *const u8,
+                            unsafe extern "C" fn() -> ListLayout,
+                        >(
+                            self.module.get_finalized_function(func_id),
+                        )()))
+                    }
+                }),
+            })
+        }
+    }
+
+    fn get_explicit_fn(
+        &self,
+        name: &str,
+        ty: &ValueType,
+    ) -> Option<
+        ExplicitJitFn<
+            Self::ExplicitNumberFn,
+            Self::ExplicitPointFn,
+            Self::ExplicitNumberListFn,
+            Self::ExplicitPointListFn,
+        >,
+    > {
+        let func_id = if let FuncOrDataId::Func(id) = self.module.get_name(name)? {
+            id
+        } else {
+            return None;
+        };
+
+        unsafe {
+            Some(match ty {
+                GenericValue::Number(_) => GenericValue::Number(ExplicitFnImpl::from_raw(
+                    self.module.get_finalized_function(func_id),
+                )),
+
+                GenericValue::Point(_) => GenericValue::Point(ExplicitFnImpl::from_raw(
+                    self.module.get_finalized_function(func_id),
+                )),
+                GenericValue::List(list_t) => GenericValue::List(match list_t {
+                    GenericList::Number(_) => GenericList::Number(ExplicitListFnImpl::from_raw(
+                        self.module.get_finalized_function(func_id),
+                    )),
+                    GenericList::PointList(_) => GenericList::PointList(
+                        ExplicitListFnImpl::from_raw(self.module.get_finalized_function(func_id)),
+                    ),
+                }),
+            })
+        }
+    }
+
+    fn get_implicit_fn(
+        &self,
+        name: &str,
+        ty: &ValueType,
+    ) -> Option<
+        ImplicitJitFn<
+            Self::ImplicitNumberFn,
+            Self::ImplicitPointFn,
+            Self::ImplicitNumberListFn,
+            Self::ImplicitPointListFn,
+        >,
+    > {
+        let func_id = if let FuncOrDataId::Func(id) = self.module.get_name(name)? {
+            id
+        } else {
+            return None;
+        };
+
+        unsafe {
+            Some(match ty {
+                GenericValue::Number(_) => GenericValue::Number(ImplicitFnImpl::from_raw(
+                    self.module.get_finalized_function(func_id),
+                )),
+
+                GenericValue::Point(_) => GenericValue::Point(ImplicitFnImpl::from_raw(
+                    self.module.get_finalized_function(func_id),
+                )),
+                GenericValue::List(list_t) => GenericValue::List(match list_t {
+                    GenericList::Number(_) => GenericList::Number(ImplicitListFnImpl::from_raw(
+                        self.module.get_finalized_function(func_id),
+                    )),
+                    GenericList::PointList(_) => GenericList::PointList(
+                        ImplicitListFnImpl::from_raw(self.module.get_finalized_function(func_id)),
+                    ),
+                }),
+            })
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Clone)]

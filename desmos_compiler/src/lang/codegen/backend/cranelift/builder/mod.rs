@@ -1,8 +1,6 @@
-use cranelift::{
-    codegen::ir::{self, Function, UserExternalName},
-    prelude::{isa::CallConv, *},
-};
-use cranelift_module::{FuncId, FuncOrDataId, FunctionDeclaration, Module};
+use anyhow::Result;
+use cranelift::{codegen::ir::Function, prelude::*};
+use cranelift_module::{FuncOrDataId, Module};
 
 use crate::lang::{
     codegen::{backend::CodeBuilder, CodeGen},
@@ -11,10 +9,11 @@ use crate::lang::{
 };
 
 use super::{
-    functions,
     value::{value_count, CraneliftValue},
     CraneliftBackend,
 };
+
+mod list;
 
 pub struct CraneliftBuilder<'a, 'ctx> {
     backend: &'ctx mut CraneliftBackend,
@@ -37,7 +36,6 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
 
         let arg_values = builder.block_params(entry_block);
 
-        println!("{:?}", arg_values);
         let mut args = Vec::new();
 
         let mut i = 0;
@@ -130,18 +128,12 @@ impl<'a, 'ctx> CodeBuilder for CraneliftBuilder<'a, 'ctx> {
         [x[0], y[0]]
     }
 
-    fn number_list(
-        &mut self,
-        elements: &[Self::NumberValue],
-    ) -> anyhow::Result<Self::NumberListValue> {
-        todo!()
+    fn number_list(&mut self, elements: &[Self::NumberValue]) -> Result<Self::NumberListValue> {
+        self.build_new_list(elements, GenericValue::Number(()))
     }
 
-    fn point_list(
-        &mut self,
-        elements: &[Self::PointValue],
-    ) -> anyhow::Result<Self::PointListValue> {
-        todo!()
+    fn point_list(&mut self, elements: &[Self::PointValue]) -> Result<Self::PointListValue> {
+        self.build_new_list(elements, GenericValue::Point(()))
     }
 
     fn map_list(
@@ -153,7 +145,8 @@ impl<'a, 'ctx> CodeBuilder for CraneliftBuilder<'a, 'ctx> {
             GenericList<Self::NumberValue, Self::PointValue>,
         ) -> GenericList<Self::NumberValue, Self::PointValue>,
     ) -> GenericList<Self::NumberListValue, Self::PointListValue> {
-        todo!()
+        self.codegen_list_map(&list, output_ty, f)
+            .expect("Something went wrong mapping list, this should not happen")
     }
 
     fn get_x(&mut self, point: Self::PointValue) -> Self::NumberValue {
