@@ -1,9 +1,8 @@
 use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Result};
-use desmos_compiler::lang::codegen::backend::compile_expressions;
 use desmos_compiler::lang::codegen::backend::compiled_exprs::{CompiledExpr, CompiledExprs};
+use desmos_compiler::lang::codegen::backend::cranelift::CraneliftBackend;
 use desmos_compiler::lang::codegen::backend::jit::{ExplicitFn, JitValue};
-use desmos_compiler::lang::codegen::backend::llvm::LLVMBackend;
 use desmos_compiler::lang::generic_value::GenericValue;
 use flume::r#async::RecvStream;
 use iced::Vector;
@@ -54,13 +53,14 @@ pub fn points_server() -> RecvStream<'static, Event> {
     let (event_tx, event_rx) = flume::unbounded();
 
     thread::spawn(move || {
-        let context = inkwell::context::Context::create();
         let mut expressions = Expressions::new();
+
         let mut compiled_exprs = CompiledExprs::new();
         event_tx.send(Event::Sender(equation_tx)).unwrap();
 
         let mut mid = Somsed::DEFAULT_MID;
         let mut range = Somsed::DEFAULT_RANGE;
+
         loop {
             let mut compute_requests = HashSet::new();
 
@@ -88,8 +88,8 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             continue;
                         }
 
-                        let backend = LLVMBackend::new(&context);
-                        compiled_exprs = compile_expressions(&backend, &expressions);
+                        let mut backend = CraneliftBackend::new();
+                        compiled_exprs = backend.compile_expressions(&expressions);
 
                         for &id in expressions.exprs.keys() {
                             if !compiled_exprs.errors.contains_key(&id) {

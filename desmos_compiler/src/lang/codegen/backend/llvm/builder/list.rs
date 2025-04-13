@@ -9,26 +9,30 @@ use crate::lang::generic_value::{GenericList, GenericValue, ListType, ValueType}
 
 use super::LLVMBuilder;
 
-impl<'ctx> LLVMBuilder<'_, 'ctx> {
+impl<'ctx> LLVMBuilder<'ctx, '_> {
     pub fn build_new_list<T: BasicValue<'ctx>>(
         &self,
         elements: &[T],
         ty: ValueType,
     ) -> Result<StructValue<'ctx>> {
-        let size = self.i64_type.const_int(elements.len() as u64, false);
+        let size = self
+            .backend
+            .i64_type
+            .const_int(elements.len() as u64, false);
 
         let pointer = match ty {
             GenericValue::Number(_) => {
-                self.codegen_allocate(size, self.number_type.as_basic_type_enum())?
+                self.codegen_allocate(size, self.backend.number_type.as_basic_type_enum())?
             }
             GenericValue::Point(_) => {
-                self.codegen_allocate(size, self.point_type.as_basic_type_enum())?
+                self.codegen_allocate(size, self.backend.point_type.as_basic_type_enum())?
             }
             GenericValue::List(_) => bail!("Cant craete lists of lists"),
         };
 
         // Initialize the struct with size and pointer
         let list_value = self
+            .backend
             .list_type
             .const_named_struct(&[size.as_basic_value_enum(), pointer.as_basic_value_enum()]); // Start with a zeroed struct
 
@@ -38,7 +42,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
                 self.builder.build_in_bounds_gep(
                     value.get_type(),
                     pointer,
-                    &[self.i64_type.const_int(i as u64, false)],
+                    &[self.backend.i64_type.const_int(i as u64, false)],
                     &format!("element_ptr_{}", i),
                 )
             };
@@ -54,10 +58,10 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
     ) -> Result<()> {
         match list {
             GenericList::Number(struct_value) => {
-                self.codegen_free_list(struct_value, self.number_type.as_basic_type_enum())
+                self.codegen_free_list(struct_value, self.backend.number_type.as_basic_type_enum())
             }
             GenericList::PointList(struct_value) => {
-                self.codegen_free_list(struct_value, self.point_type.as_basic_type_enum())
+                self.codegen_free_list(struct_value, self.backend.point_type.as_basic_type_enum())
             }
         }
     }
@@ -82,8 +86,8 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         let pointer_field_index = 1;
 
         let (input_struct, input_llvm_type) = match list {
-            GenericList::Number(s) => (s, self.number_type.as_basic_type_enum()),
-            GenericList::PointList(s) => (s, self.point_type.as_basic_type_enum()),
+            GenericList::Number(s) => (s, self.backend.number_type.as_basic_type_enum()),
+            GenericList::PointList(s) => (s, self.backend.point_type.as_basic_type_enum()),
         };
 
         let size = self
@@ -99,8 +103,8 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
             .into_pointer_value();
 
         let output_llvm_type = match output_ty {
-            GenericList::Number(_) => self.number_type.as_basic_type_enum(),
-            GenericList::PointList(_) => self.point_type.as_basic_type_enum(),
+            GenericList::Number(_) => self.backend.number_type.as_basic_type_enum(),
+            GenericList::PointList(_) => self.backend.point_type.as_basic_type_enum(),
         };
 
         let output_pointer = self.codegen_allocate(size, input_llvm_type)?;
@@ -110,13 +114,19 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         let current_fn = self.function;
 
         // Create separate blocks for loop header and loop body
-        let loop_header = self.context.append_basic_block(current_fn, "loop_header");
-        let loop_body = self.context.append_basic_block(current_fn, "loop_body");
-        let end_block = self.context.append_basic_block(current_fn, "end");
+        let loop_header = self
+            .backend
+            .context
+            .append_basic_block(current_fn, "loop_header");
+        let loop_body = self
+            .backend
+            .context
+            .append_basic_block(current_fn, "loop_body");
+        let end_block = self.backend.context.append_basic_block(current_fn, "end");
 
-        let index_alloca = self.builder.build_alloca(self.i64_type, "index")?;
+        let index_alloca = self.builder.build_alloca(self.backend.i64_type, "index")?;
         self.builder
-            .build_store(index_alloca, self.i64_type.const_int(0, false))?;
+            .build_store(index_alloca, self.backend.i64_type.const_int(0, false))?;
 
         // Initial branch to the loop header
         self.builder.build_unconditional_branch(loop_header)?;
@@ -125,7 +135,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         self.builder.position_at_end(loop_header);
         let current_index_val = self
             .builder
-            .build_load(self.i64_type, index_alloca, "current_index")?
+            .build_load(self.backend.i64_type, index_alloca, "current_index")?
             .into_int_value();
         let cond = self.builder.build_int_compare(
             IntPredicate::ULT,
@@ -178,7 +188,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         // Increment index
         let next_index = self.builder.build_int_add(
             current_index_val,
-            self.i64_type.const_int(1, false),
+            self.backend.i64_type.const_int(1, false),
             "next_index",
         )?;
         self.builder.build_store(index_alloca, next_index)?;
@@ -196,7 +206,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
     }
 
     fn create_list(&self, size: IntValue<'ctx>, pointer: PointerValue<'ctx>) -> StructValue<'ctx> {
-        let list_value = self.list_type.get_undef();
+        let list_value = self.backend.list_type.get_undef();
 
         let list_value = self
             .builder
@@ -225,6 +235,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
 
         // Call malloc to allocate memory
         let malloc_fn = self
+            .backend
             .module
             .get_function("malloc")
             .expect("malloc should be defined"); // Assuming `malloc` is defined
@@ -286,6 +297,7 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
 
         // Call the `free` function
         let free_fn = self
+            .backend
             .module
             .get_function("free")
             .expect("Free function not found");

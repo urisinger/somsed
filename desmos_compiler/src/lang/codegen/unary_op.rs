@@ -3,17 +3,17 @@ use anyhow::{bail, Result};
 use crate::lang::{expr::UnaryOp, generic_value::GenericValue};
 
 use super::{
-    backend::{self, BackendValue, CodeBuilder},
+    backend::{BuilderValue, CodeBuilder},
     CodeGen,
 };
 
-impl<Backend: backend::Backend> CodeGen<'_, Backend> {
-    pub(crate) fn codegen_unary_op<'ctx>(
+impl CodeGen<'_> {
+    pub(crate) fn codegen_unary_op<Builder: CodeBuilder>(
         &self,
-        builder: &mut Backend::Builder<'ctx>,
-        lhs: BackendValue<'ctx, Backend>,
+        builder: &mut Builder,
+        lhs: BuilderValue<Builder>,
         op: UnaryOp,
-    ) -> Result<BackendValue<'ctx, Backend>> {
+    ) -> Result<BuilderValue<Builder>> {
         Ok(match lhs {
             GenericValue::Number(lhs) => {
                 GenericValue::Number(self.codegen_unary_number_op(builder, lhs, op)?)
@@ -34,12 +34,12 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
         })
     }
 
-    pub(crate) fn codegen_unary_number_op<'ctx>(
+    pub(crate) fn codegen_unary_number_op<Builder: CodeBuilder>(
         &self,
-        builder: &mut Backend::Builder<'ctx>,
-        lhs: <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
+        builder: &mut Builder,
+        lhs: Builder::NumberValue,
         op: UnaryOp,
-    ) -> Result<<Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue> {
+    ) -> Result<Builder::NumberValue> {
         Ok(match op {
             UnaryOp::Neg => builder.neg(lhs),
             UnaryOp::Sqrt => builder.sqrt(lhs),

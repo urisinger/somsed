@@ -4,7 +4,6 @@ use anyhow::Result;
 use inkwell::{
     builder::Builder,
     intrinsics::Intrinsic,
-    module::Module,
     types::{BasicTypeEnum, FloatType, IntType, StructType},
     values::{
         AnyValue, BasicMetadataValueEnum, BasicValue, FloatValue, FunctionValue, StructValue,
@@ -12,27 +11,22 @@ use inkwell::{
 };
 
 use crate::lang::{
-    codegen::backend::CodeBuilder,
-    generic_value::{GenericList, GenericValue, ListType, ValueType},
+    codegen::{backend::CodeBuilder, CodeGen},
+    expr::Expr,
+    generic_value::{GenericList, GenericValue, ListType},
 };
 
-use super::value::LLVMValue;
+use super::{value::LLVMValue, LLVMBackend};
 
-pub struct LLVMBuilder<'module, 'ctx> {
-    pub(crate) context: &'ctx inkwell::context::Context,
-    pub(crate) module: &'module Module<'ctx>,
+pub struct LLVMBuilder<'ctx, 'a> {
+    pub(crate) backend: &'a LLVMBackend<'ctx>,
     pub(crate) builder: Builder<'ctx>,
 
     pub(crate) function: FunctionValue<'ctx>,
     pub(crate) args: Vec<LLVMValue<'ctx>>,
-    pub(crate) number_type: FloatType<'ctx>,
-    pub(crate) i64_type: IntType<'ctx>,
-
-    pub(crate) point_type: StructType<'ctx>,
-    pub(crate) list_type: StructType<'ctx>,
 }
 
-impl<'ctx> LLVMBuilder<'_, 'ctx> {
+impl<'ctx> LLVMBuilder<'ctx, '_> {
     fn build_intrinsic(
         &self,
         intrinsic_name: &str,
@@ -42,10 +36,10 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
         let intrinsic = Intrinsic::find(intrinsic_name)
             .unwrap_or_else(|| panic!("Intrinsic {} must exist", intrinsic_name));
 
-        let arg_types: Vec<BasicTypeEnum<'ctx>> = vec![self.number_type.into(); args.len()];
+        let arg_types: Vec<BasicTypeEnum<'ctx>> = vec![self.backend.number_type.into(); args.len()];
 
         let declaration = intrinsic
-            .get_declaration(self.module, &arg_types)
+            .get_declaration(&self.backend.module, &arg_types)
             .expect("Failed to get intrinsic declaration");
 
         self.builder
@@ -57,54 +51,51 @@ impl<'ctx> LLVMBuilder<'_, 'ctx> {
     }
 }
 
-impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
+impl<'ctx> CodeBuilder for LLVMBuilder<'ctx, '_> {
     type NumberValue = FloatValue<'ctx>;
     type PointValue = StructValue<'ctx>;
 
     type NumberListValue = StructValue<'ctx>;
     type PointListValue = StructValue<'ctx>;
 
-    fn build_return(self, value: LLVMValue) -> FunctionValue<'ctx> {
-        self.builder
-            .build_return(Some(&value))
-            .expect("invalid builder state");
-        self.function
+    fn build_return(self, value: LLVMValue<'ctx>) {
+        self.builder.build_return(Some(&value));
     }
 
-    fn get_arg(
-        &mut self,
-        index: usize,
-    ) -> Option<
-        &GenericValue<
-            Self::NumberValue,
-            Self::PointValue,
-            Self::NumberListValue,
-            Self::PointListValue,
-        >,
-    > {
+    fn get_arg(&mut self, index: usize) -> Option<&LLVMValue<'ctx>> {
         self.args.get(index)
     }
 
-    fn call_fn(
+    fn call_fn<'a>(
         &mut self,
-        function: FunctionValue<'ctx>,
-        values: &[GenericValue<
-            Self::NumberValue,
-            Self::PointValue,
-            Self::NumberListValue,
-            Self::PointListValue,
-        >],
-        ret: &ValueType,
-    ) -> GenericValue<
-        Self::NumberValue,
-        Self::PointValue,
-        Self::NumberListValue,
-        Self::PointListValue,
-    > {
+        name: &str,
+        values: &[LLVMValue<'ctx>],
+        codegen: &mut CodeGen<'a>,
+    ) -> Option<LLVMValue<'ctx>> {
         let args: Vec<_> = values
             .iter()
             .map(|value| value.as_basic_value_enum().into())
             .collect();
+
+        let types: Vec<_> = values.iter().map(|v| v.get_type()).collect();
+        let node = match codegen.exprs.get_expr(name)? {
+            Expr::FnDef { rhs, .. } => rhs,
+            _ => return None,
+        };
+
+        let ret = node.return_type(codegen.exprs, &types).ok()?;
+
+        let function = if let Some(function) = self.backend.module.get_function(name) {
+            function
+        } else {
+            let mut builder = self.backend.get_builder(name, &types, &ret);
+            let function = builder.function.clone();
+
+            let value = codegen.codegen_expr(&mut builder, node).ok()?;
+
+            builder.build_return(value);
+            function
+        };
 
         let call = self
             .builder
@@ -114,17 +105,16 @@ impl<'ctx> CodeBuilder<FunctionValue<'ctx>> for LLVMBuilder<'_, 'ctx> {
         LLVMValue::from_basic_value_enum(
             call.try_as_basic_value()
                 .expect_left("no function can return void"),
-            ret,
+            &ret,
         )
-        .expect("function must return a valid type")
     }
 
     fn const_number(&mut self, number: f64) -> Self::NumberValue {
-        self.number_type.const_float(number)
+        self.backend.number_type.const_float(number)
     }
 
     fn point(&mut self, x: Self::NumberValue, y: Self::NumberValue) -> Self::PointValue {
-        let point = self.point_type.get_undef();
+        let point = self.backend.point_type.get_undef();
 
         let point = self
             .builder

@@ -6,7 +6,7 @@ use crate::lang::{
 };
 
 use super::{
-    backend::{self, BackendValue, CodeBuilder},
+    backend::{BuilderValue, CodeBuilder},
     CodeGen,
 };
 
@@ -16,14 +16,14 @@ enum ScalarPosition {
 }
 
 // All of this is a bit weird, but doing it the normal match way would be even more annoying
-impl<Backend: backend::Backend> CodeGen<'_, Backend> {
-    pub fn codegen_binary_op<'ctx>(
+impl CodeGen<'_> {
+    pub fn codegen_binary_op<'ctx, Builder: CodeBuilder>(
         &self,
-        builder: &mut Backend::Builder<'ctx>,
-        lhs: BackendValue<'ctx, Backend>,
+        builder: &mut Builder,
+        lhs: BuilderValue<Builder>,
         op: BinaryOp,
-        rhs: BackendValue<'ctx, Backend>,
-    ) -> Result<BackendValue<'ctx, Backend>> {
+        rhs: BuilderValue<Builder>,
+    ) -> Result<BuilderValue<Builder>> {
         match (lhs, rhs) {
             // (Number, Number)
             (lhs @ (GenericValue::Number(_) | GenericValue::Point(_)), rhs @ (GenericValue::Number(_) | GenericValue::Point(_))) => {
@@ -77,18 +77,15 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
         }
     }
 
-    fn distribute_mixed_op<'ctx>(
+    fn distribute_mixed_op<'ctx, Builder: CodeBuilder>(
         &self,
-        builder: &mut Backend::Builder<'ctx>,
-        list: GenericList<
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberListValue,
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::PointListValue,
-        >,
-        scalar: BackendValue<'ctx, Backend>,
+        builder: &mut Builder,
+        list: GenericList<Builder::NumberListValue, Builder::PointListValue>,
+        scalar: BuilderValue<Builder>,
         pos: ScalarPosition,
         op: BinaryOp,
         output_ty: ListType,
-    ) -> Result<BackendValue<'ctx, Backend>> {
+    ) -> Result<BuilderValue<Builder>> {
         // Use the builder's map_list helper to iterate over list elements.
         let result_list = builder.map_list(list, output_ty, |builder, elem| {
             // For each list element, lift the scalar into a list element
@@ -114,24 +111,13 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
         Ok(GenericValue::List(result_list))
     }
 
-    fn codegen_simple_binary_op<'ctx>(
+    fn codegen_simple_binary_op<'ctx, Builder: CodeBuilder>(
         &self,
-        builder: &mut Backend::Builder<'ctx>,
-        lhs: GenericList<
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::PointValue,
-        >,
+        builder: &mut Builder,
+        lhs: GenericList<Builder::NumberValue, Builder::PointValue>,
         op: BinaryOp,
-        rhs: GenericList<
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::PointValue,
-        >,
-    ) -> Result<
-        GenericList<
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
-            <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::PointValue,
-        >,
-    > {
+        rhs: GenericList<Builder::NumberValue, Builder::PointValue>,
+    ) -> Result<GenericList<Builder::NumberValue, Builder::PointValue>> {
         Ok(match (lhs, rhs) {
             (GenericList::Number(lhs), GenericList::Number(rhs)) => {
                 GenericList::Number(self.codegen_binary_number_op(builder, lhs, op, rhs))
@@ -197,13 +183,13 @@ impl<Backend: backend::Backend> CodeGen<'_, Backend> {
         })
     }
 
-    fn codegen_binary_number_op<'ctx>(
+    fn codegen_binary_number_op<'ctx, Builder: CodeBuilder>(
         &self,
-        builder: &mut Backend::Builder<'ctx>,
-        lhs: <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
+        builder: &mut Builder,
+        lhs: Builder::NumberValue,
         op: BinaryOp,
-        rhs: <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue,
-    ) -> <Backend::Builder<'ctx> as CodeBuilder<Backend::FnValue>>::NumberValue {
+        rhs: Builder::NumberValue,
+    ) -> Builder::NumberValue {
         match op {
             BinaryOp::Add => builder.add(lhs, rhs),
             BinaryOp::Sub => builder.sub(lhs, rhs),

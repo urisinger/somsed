@@ -3,13 +3,23 @@ name = "desmos_compiler"
 version = {workspace = true}
 edition = {workspace = true}
 
+
 [dependencies]
-anyhow = {workspace = true}
-inkwell = {workspace = true}
-lazy_static = {workspace = true}
-pest = {workspace = true}
-pest_derive = {workspace = true}
-thiserror = {workspace = true}
-cranelift = {workspace = true}
-cranelift-jit = {workspace = true}
-cranelift-module = {workspace = true}
+anyhow = { workspace = true }
+lazy_static = { workspace = true }
+pest = { workspace = true }
+pest_derive = { workspace = true }
+thiserror = { workspace = true }
+
+inkwell = { workspace = true, optional = true }
+cranelift = { workspace = true, optional = true }
+cranelift-jit = { workspace = true, optional = true }
+cranelift-module = { workspace = true, optional = true }
+
+
+[features]
+default = ["cranelift"]
+
+llvm = ["dep:inkwell"]
+cranelift = ["dep:cranelift", "dep:cranelift-jit", "dep:cranelift-module"]
+

@@ -2,8 +2,6 @@ pub mod backend;
 mod bin_op;
 mod unary_op;
 
-use std::collections::HashMap;
-
 use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
@@ -14,32 +12,33 @@ use crate::{
     },
 };
 
-use backend::{BackendValue, CodeBuilder};
+use backend::CodeBuilder;
 
-pub struct CodeGen<'a, Backend: backend::Backend> {
-    backend: &'a Backend,
+pub struct CodeGen<'a> {
     exprs: &'a Expressions,
-    pub return_types: HashMap<String, ValueType>,
 }
 
-impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
-    pub fn new(backend: &'a Backend, exprs: &'a Expressions) -> Self {
-        Self {
-            backend,
-            exprs,
-            return_types: HashMap::new(),
-        }
+impl<'a> CodeGen<'a> {
+    pub fn new(exprs: &'a Expressions) -> Self {
+        Self { exprs }
     }
 
-    pub fn codegen_expr<'ctx>(
+    pub fn codegen_expr<'ctx, Builder: CodeBuilder>(
         &mut self,
-        builder: &mut Backend::Builder<'ctx>,
+        builder: &mut Builder,
         expr: &Node,
-    ) -> Result<BackendValue<'ctx, Backend>> {
+    ) -> Result<
+        GenericValue<
+            Builder::NumberValue,
+            Builder::PointValue,
+            Builder::NumberListValue,
+            Builder::PointListValue,
+        >,
+    > {
         Ok(match expr {
             Node::Lit(Literal::Float(value)) => GenericValue::Number(builder.const_number(*value)),
             Node::Lit(Literal::List(elements)) => {
-                match elements
+                match &elements
                     .iter()
                     .map(|element| self.codegen_expr(builder, element))
                     .try_fold(None, |acc: Option<GenericList<Vec<_>, Vec<_>>>, current| {
@@ -72,10 +71,10 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
                         })
                     })? {
                     Some(GenericList::Number(elements)) => {
-                        GenericValue::List(GenericList::Number(builder.number_list(&elements)?))
+                        GenericValue::List(GenericList::Number(builder.number_list(elements)?))
                     }
                     Some(GenericList::PointList(elements)) => {
-                        GenericValue::List(GenericList::PointList(builder.point_list(&elements)?))
+                        GenericValue::List(GenericList::PointList(builder.point_list(elements)?))
                     }
                     None => GenericValue::List(GenericList::Number(builder.number_list(&[])?)),
                 }
@@ -128,11 +127,18 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
         })
     }
 
-    pub fn get_var<'ctx>(
+    pub fn get_var<'ctx, Builder: CodeBuilder>(
         &mut self,
-        builder: &mut Backend::Builder<'ctx>,
+        builder: &mut Builder,
         ident: &str,
-    ) -> Result<BackendValue<'ctx, Backend>> {
+    ) -> Result<
+        GenericValue<
+            Builder::NumberValue,
+            Builder::PointValue,
+            Builder::NumberListValue,
+            Builder::PointListValue,
+        >,
+    > {
         match self
             .exprs
             .get_expr(ident)
@@ -143,12 +149,24 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
         }
     }
 
-    pub fn codegen_fn_call<'ctx>(
+    pub fn codegen_fn_call<'ctx, Builder: CodeBuilder>(
         &mut self,
-        builder: &mut Backend::Builder<'ctx>,
+        builder: &mut Builder,
         name: &str,
-        args: &[BackendValue<'ctx, Backend>],
-    ) -> Result<BackendValue<'ctx, Backend>> {
+        args: &[GenericValue<
+            Builder::NumberValue,
+            Builder::PointValue,
+            Builder::NumberListValue,
+            Builder::PointListValue,
+        >],
+    ) -> Result<
+        GenericValue<
+            Builder::NumberValue,
+            Builder::PointValue,
+            Builder::NumberListValue,
+            Builder::PointListValue,
+        >,
+    > {
         let types: Vec<ValueType> = args.iter().map(|arg| arg.get_type()).collect();
 
         let len = types.iter().map(|t| t.name().len() + 1).sum::<usize>() + name.len();
@@ -161,45 +179,19 @@ impl<'a, Backend: backend::Backend> CodeGen<'a, Backend> {
             specialized_name.push_str(t.name());
         }
 
-        if let Some(function) = self.backend.get_fn(&specialized_name) {
-            let return_type = self
-                .return_types
-                .get(&specialized_name)
-                .expect("compile_fn should have inserted return type");
-
-            Ok(builder.call_fn(function, args, return_type))
-        } else {
-            match self.exprs.get_expr(name) {
-                Some(Expr::FnDef { rhs, .. }) => {
-                    let function = self.compile_fn(specialized_name.clone(), rhs, &types)?;
-
-                    let return_type = self
-                        .return_types
-                        .get(&specialized_name)
-                        .expect("compile_fn should have inserted return type");
-
-                    Ok(builder.call_fn(function, args, return_type))
-                }
-                None => bail!("no exprssion found for function {name}"),
-                _ => unreachable!("this indicates a bug"),
-            }
-        }
+        builder
+            .call_fn(&specialized_name, args, self)
+            .ok_or_else(|| anyhow!("function does not exist"))
     }
 
-    pub fn compile_fn(
+    pub fn compile_fn<'ctx, Builder: CodeBuilder>(
         &mut self,
-        specialized_name: impl Into<String>,
+        mut builder: Builder,
         node: &Node,
-        types: &[ValueType],
-    ) -> Result<Backend::FnValue> {
-        let specialized_name = specialized_name.into();
-        let ret = node.return_type(self.exprs, types)?;
-        let mut builder = self.backend.get_builder(&specialized_name, types, &ret);
-
-        self.return_types.insert(specialized_name, ret);
-
+    ) -> Result<()> {
         let value = self.codegen_expr(&mut builder, node)?;
 
-        Ok(builder.build_return(value))
+        builder.build_return(value);
+        Ok(())
     }
 }

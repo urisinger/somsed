@@ -1,6 +1,4 @@
-use inkwell::execution_engine::JitFunction;
-
-use crate::lang::codegen::backend::jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, PointValue};
+use crate::lang::codegen::backend::jit::{ExplicitFn, ImplicitFn};
 
 #[repr(C)]
 #[derive(Debug, Clone)]
@@ -9,51 +7,74 @@ pub struct ListLayout {
     pub ptr: *mut u8,
 }
 
-pub type ExplicitLLVMJitFn<'ctx> = ExplicitJitFn<
-    ExplicitLLVMFn<'ctx, f64>,
-    ExplicitLLVMFn<'ctx, PointValue>,
-    ExplicitLLVMListFn<'ctx>,
-    ExplicitLLVMListFn<'ctx>,
->;
-
-pub struct ExplicitLLVMFn<'ctx, T> {
-    pub function: JitFunction<'ctx, unsafe extern "C" fn(f64) -> T>,
+pub struct ExplicitFnImpl<T> {
+    pub function: unsafe extern "C" fn(f64) -> T,
 }
 
-impl<T> ExplicitFn<T> for ExplicitLLVMFn<'_, T> {
+impl<T> ExplicitFnImpl<T> {
+    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+        let function = std::mem::transmute::<*const u8, unsafe extern "C" fn(f64) -> T>(ptr);
+        Self { function }
+    }
+}
+
+impl<T> ExplicitFn<T> for ExplicitFnImpl<T> {
     fn call(&self, x: f64) -> T {
-        unsafe { self.function.call(x) }
+        unsafe { (self.function)(x) }
     }
 }
 
-pub struct ImplicitLLVMFn<'ctx, T> {
-    pub function: JitFunction<'ctx, unsafe extern "C" fn(f64, f64) -> T>,
+pub struct ImplicitFnImpl<T> {
+    pub function: unsafe extern "C" fn(f64, f64) -> T,
 }
 
-impl<T> ImplicitFn<T> for ImplicitLLVMFn<'_, T> {
+impl<T> ImplicitFnImpl<T> {
+    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+        let function = std::mem::transmute::<*const u8, unsafe extern "C" fn(f64, f64) -> T>(ptr);
+        Self { function }
+    }
+}
+
+impl<T> ImplicitFn<T> for ImplicitFnImpl<T> {
     fn call_implicit(&self, x: f64, y: f64) -> T {
-        unsafe { self.function.call(x, y) }
+        unsafe { (self.function)(x, y) }
     }
 }
 
-pub struct ExplicitLLVMListFn<'ctx> {
-    pub function: JitFunction<'ctx, unsafe extern "C" fn(f64) -> ListLayout>,
+pub struct ExplicitListFnImpl {
+    pub function: unsafe extern "C" fn(f64) -> ListLayout,
 }
 
-impl<T: Clone> ExplicitFn<Vec<T>> for ExplicitLLVMListFn<'_> {
+impl ExplicitListFnImpl {
+    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+        let function =
+            std::mem::transmute::<*const u8, unsafe extern "C" fn(f64) -> ListLayout>(ptr);
+        Self { function }
+    }
+}
+
+impl<T: Clone> ExplicitFn<Vec<T>> for ExplicitListFnImpl {
     fn call(&self, x: f64) -> Vec<T> {
-        let list_layout = unsafe { self.function.call(x) };
+        let list_layout = unsafe { (self.function)(x) };
         convert_list(&list_layout)
     }
 }
 
-pub struct ImplicitLLVMListFn<'ctx> {
-    pub function: JitFunction<'ctx, unsafe extern "C" fn(f64, f64) -> ListLayout>,
+impl ImplicitListFnImpl {
+    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+        let function =
+            std::mem::transmute::<*const u8, unsafe extern "C" fn(f64, f64) -> ListLayout>(ptr);
+        Self { function }
+    }
 }
 
-impl<T: Clone> ImplicitFn<Vec<T>> for ImplicitLLVMListFn<'_> {
+pub struct ImplicitListFnImpl {
+    pub function: unsafe extern "C" fn(f64, f64) -> ListLayout,
+}
+
+impl<T: Clone> ImplicitFn<Vec<T>> for ImplicitListFnImpl {
     fn call_implicit(&self, x: f64, y: f64) -> Vec<T> {
-        let list_layout = unsafe { self.function.call(x, y) };
+        let list_layout = unsafe { (self.function)(x, y) };
         convert_list(&list_layout)
     }
 }

@@ -1,175 +1,16 @@
 pub mod compiled_exprs;
-pub mod cranelift;
 pub mod jit;
+#[cfg(feature = "llvm")]
 pub mod llvm;
 
-use anyhow::anyhow;
-use compiled_exprs::{CompiledExpr, CompiledExprs};
+#[cfg(feature = "cranelift")]
+pub mod cranelift;
+
 use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
 
-use crate::{
-    expressions::Expressions,
-    lang::{
-        expr::Expr,
-        generic_value::{GenericList, GenericValue, ListType, ValueType},
-    },
-};
+use crate::lang::generic_value::{GenericList, GenericValue, ListType, ValueType};
 
 use super::CodeGen;
-
-pub fn compile_expressions<BackendT: CompiledBackend>(
-    backend: &BackendT,
-    exprs: &Expressions,
-) -> CompiledExprs<BackendT::Engine> {
-    let mut codegen = CodeGen::new(backend, exprs);
-
-    let mut compiled_exprs: CompiledExprs<BackendT::Engine> = CompiledExprs::new();
-
-    //We first have to compile everything
-    for (id, expr) in &exprs.exprs {
-        match &expr.expr {
-            Expr::Implicit { lhs, rhs, .. } => {
-                let args_t = [ValueType::Number(()), ValueType::Number(())];
-
-                let lhs_name = format!("implicit_{}_lhs", id.0);
-                _ = codegen
-                    .compile_fn(&lhs_name, lhs, &args_t)
-                    .inspect_err(|e| {
-                        compiled_exprs.errors.insert(*id, e.to_string());
-                    });
-
-                let rhs_name = format!("implicit_{}_rhs", id.0);
-                _ = codegen
-                    .compile_fn(&rhs_name, rhs, &args_t)
-                    .inspect_err(|e| {
-                        compiled_exprs.errors.insert(*id, e.to_string());
-                    });
-            }
-            Expr::Explicit { lhs } => {
-                let name = format!("explicit_{}", id.0);
-
-                let args = if expr.used_idents.contains("x") {
-                    vec![ValueType::Number(())]
-                } else {
-                    vec![]
-                };
-
-                _ = codegen.compile_fn(&name, lhs, &args).inspect_err(|e| {
-                    compiled_exprs.errors.insert(*id, e.to_string());
-                });
-            }
-            Expr::VarDef { rhs, ident } => {
-                if !expr.used_idents.is_empty() {
-                    continue;
-                }
-                let name = ident.to_string();
-                println!("{:?}", expr.used_idents);
-
-                let args = [];
-                _ = codegen.compile_fn(&name, rhs, &args).inspect_err(|e| {
-                    compiled_exprs.errors.insert(*id, e.to_string());
-                });
-            }
-            _ => {}
-        }
-    }
-
-    let execution_engine = backend.get_execution_engine();
-
-    // Only then we can retrive the functions
-    for (id, expr) in &exprs.exprs {
-        if compiled_exprs.errors.contains_key(id) {
-            continue;
-        }
-        match &expr.expr {
-            Expr::Implicit { op, .. } => {
-                let lhs_name = format!("implicit_{}_lhs", id.0);
-                let lhs_result = execution_engine
-                    .get_implicit_fn(
-                        &lhs_name,
-                        codegen.return_types.get(&lhs_name).unwrap_or_else(|| {
-                            panic!("Return type not found for rhs: {}", lhs_name);
-                        }),
-                    )
-                    .ok_or_else(|| anyhow!("fn {} does not exist", lhs_name));
-
-                let rhs_name = format!("implicit_{}_rhs", id.0);
-                let rhs_result = execution_engine
-                    .get_implicit_fn(
-                        &rhs_name,
-                        codegen.return_types.get(&rhs_name).unwrap_or_else(|| {
-                            panic!("Return type not found for rhs: {}", rhs_name);
-                        }),
-                    )
-                    .ok_or_else(|| anyhow!("fn {} does not exist", rhs_name));
-
-                let result = match (lhs_result, rhs_result) {
-                    (Ok(lhs), Ok(rhs)) => Ok(CompiledExpr::Implicit { lhs, op: *op, rhs }),
-                    (Err(e), _) => Err(e),
-                    (_, Err(e)) => Err(e),
-                };
-
-                compiled_exprs.insert(*id, result);
-            }
-            Expr::Explicit { .. } => {
-                let name = format!("explicit_{}", id.0);
-
-                let value = if expr.used_idents.contains("x") {
-                    execution_engine
-                        .get_explicit_fn(
-                            &name,
-                            codegen.return_types.get(&name).unwrap_or_else(|| {
-                                panic!("Return type not found for rhs: {}", name);
-                            }),
-                        )
-                        .ok_or_else(|| anyhow!("fn {} does not exist", name))
-                        .map(|lhs| CompiledExpr::Explicit { lhs })
-                } else {
-                    let return_type = codegen.return_types.get(&name).unwrap_or_else(|| {
-                        panic!("Return type not found for explicit function: {}", name);
-                    });
-
-                    execution_engine
-                        .eval(&name, return_type)
-                        .ok_or_else(|| anyhow!("Could not find function {name}"))
-                        .map(|value| CompiledExpr::Constant { value })
-                };
-
-                compiled_exprs.insert(*id, value);
-            }
-            Expr::VarDef { ident, .. } => {
-                if !expr.used_idents.is_empty() {
-                    continue;
-                }
-
-                let name = ident.to_string();
-
-                let return_type = codegen.return_types.get(&name).unwrap_or_else(|| {
-                    panic!("Return type not found for explicit function: {}", name);
-                });
-
-                let value = execution_engine.eval(&name, return_type);
-
-                compiled_exprs.insert(
-                    *id,
-                    value
-                        .ok_or_else(|| anyhow!("Could not find function {name}"))
-                        .map(|value| CompiledExpr::Constant { value }),
-                );
-            }
-            _ => {}
-        };
-    }
-
-    compiled_exprs
-}
-
-pub type BackendValue<'a, BackendT> = GenericValue<
-    <<BackendT as Backend>::Builder<'a>as CodeBuilder< <BackendT as Backend>::FnValue>>::NumberValue,
-    <<BackendT as Backend>::Builder<'a> as CodeBuilder< <BackendT as Backend>::FnValue>>::PointValue,
-    <<BackendT as Backend>::Builder<'a> as CodeBuilder< <BackendT as Backend>::FnValue>>::NumberListValue,
-    <<BackendT as Backend>::Builder<'a> as CodeBuilder< <BackendT as Backend>::FnValue>>::PointListValue,
->;
 
 pub trait ExecutionEngine {
     type ExplicitNumberFn: ExplicitFn<f64>;
@@ -211,28 +52,14 @@ pub trait ExecutionEngine {
     >;
 }
 
-pub trait CompiledBackend: Backend {
-    type Engine: ExecutionEngine;
-    fn get_execution_engine(&self) -> Self::Engine;
-}
+pub type BuilderValue<Builder: CodeBuilder> = GenericValue<
+    Builder::NumberValue,
+    Builder::PointValue,
+    Builder::NumberListValue,
+    Builder::PointListValue,
+>;
 
-pub trait Backend {
-    type FnValue;
-    type Builder<'a>: CodeBuilder<Self::FnValue>
-    where
-        Self: 'a;
-
-    fn get_builder<'a>(
-        &'a self,
-        name: &str,
-        types: &[ValueType],
-        return_type: &ValueType,
-    ) -> Self::Builder<'a>;
-
-    fn get_fn(&self, name: &str) -> Option<Self::FnValue>;
-}
-
-pub trait CodeBuilder<FnValue> {
+pub trait CodeBuilder {
     type NumberValue: Clone;
     type PointValue: Clone;
     type NumberListValue: Clone;
@@ -246,7 +73,26 @@ pub trait CodeBuilder<FnValue> {
             Self::NumberListValue,
             Self::PointListValue,
         >,
-    ) -> FnValue;
+    );
+
+    fn call_fn<'a>(
+        &mut self,
+        name: &str,
+        values: &[GenericValue<
+            Self::NumberValue,
+            Self::PointValue,
+            Self::NumberListValue,
+            Self::PointListValue,
+        >],
+        codegen: &mut CodeGen<'a>,
+    ) -> Option<
+        GenericValue<
+            Self::NumberValue,
+            Self::PointValue,
+            Self::NumberListValue,
+            Self::PointListValue,
+        >,
+    >;
 
     fn get_arg(
         &mut self,
@@ -258,23 +104,6 @@ pub trait CodeBuilder<FnValue> {
             Self::NumberListValue,
             Self::PointListValue,
         >,
-    >;
-
-    fn call_fn(
-        &mut self,
-        function: FnValue,
-        values: &[GenericValue<
-            Self::NumberValue,
-            Self::PointValue,
-            Self::NumberListValue,
-            Self::PointListValue,
-        >],
-        ret: &ValueType,
-    ) -> GenericValue<
-        Self::NumberValue,
-        Self::PointValue,
-        Self::NumberListValue,
-        Self::PointListValue,
     >;
 
     fn const_number(&mut self, number: f64) -> Self::NumberValue;

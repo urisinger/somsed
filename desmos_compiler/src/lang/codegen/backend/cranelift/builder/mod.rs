@@ -1,58 +1,133 @@
 use cranelift::{
-    codegen::ir::{Function, UserExternalName, UserExternalNameRef},
-    prelude::*,
+    codegen::ir::{self, Function, UserExternalName},
+    prelude::{isa::CallConv, *},
 };
-use cranelift_module::FuncId;
+use cranelift_module::{FuncId, FuncOrDataId, FunctionDeclaration, Module};
 
 use crate::lang::{
-    codegen::backend::CodeBuilder,
-    generic_value::{GenericValue, ValueType},
+    codegen::{backend::CodeBuilder, CodeGen},
+    expr::Expr,
+    generic_value::{GenericList, GenericValue, ListType, ValueType},
 };
 
-use super::value::CraneliftValue;
+use super::{
+    functions,
+    value::{value_count, CraneliftValue},
+    CraneliftBackend,
+};
 
-struct BackendBuilder<'ctx> {
-    pub builder: FunctionBuilder<'ctx>,
-    pub function: Function,
-    pub func_id: FuncId,
+pub struct CraneliftBuilder<'a, 'ctx> {
+    backend: &'ctx mut CraneliftBackend,
+    builder: FunctionBuilder<'a>,
 
     // Vector to the start of each variable, the number of values is decided by the type
     args: Vec<CraneliftValue>,
 }
 
-impl<'ctx> CodeBuilder<FuncId> for BackendBuilder<'ctx> {
+impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
+    pub fn new(
+        backend: &'ctx mut CraneliftBackend,
+        mut builder: FunctionBuilder<'a>,
+        types: &[ValueType],
+    ) -> Self {
+        let entry_block = builder.create_block();
+        builder.append_block_params_for_function_params(entry_block);
+        builder.switch_to_block(entry_block);
+        builder.seal_block(entry_block);
+
+        let arg_values = builder.block_params(entry_block);
+
+        println!("{:?}", arg_values);
+        let mut args = Vec::new();
+
+        let mut i = 0;
+        for ty in types {
+            let count = value_count(ty.clone()); // number of Values this type consumes
+            let slice = &arg_values[i..i + count];
+            let value = CraneliftValue::from_values(slice, ty).unwrap(); // or handle None
+            args.push(value);
+            i += count;
+        }
+
+        CraneliftBuilder {
+            backend,
+            builder,
+            args,
+        }
+    }
+}
+
+impl<'a, 'ctx> CodeBuilder for CraneliftBuilder<'a, 'ctx> {
     type NumberValue = [Value; 1];
     type PointValue = [Value; 2];
 
     type NumberListValue = [Value; 2];
     type PointListValue = [Value; 2];
 
-    fn build_return(mut self, value: CraneliftValue) -> FuncId {
+    fn build_return(mut self, value: CraneliftValue) {
         self.builder.ins().return_(value.as_struct());
-        self.func_id
     }
 
     fn get_arg(&mut self, index: usize) -> Option<&CraneliftValue> {
         self.args.get(index)
     }
 
-    fn call_fn(
+    fn call_fn<'b>(
         &mut self,
-        function: FuncId,
+        name: &str,
         values: &[CraneliftValue],
-        ret: &ValueType,
-    ) -> CraneliftValue {
-        self.function.import_function(ExtFuncData {
-            name: ExternalName::user(UserExternalNameRef::from_u32(self.func_id.as_u32())),
-        })
+        codegen: &mut CodeGen<'b>,
+    ) -> Option<CraneliftValue> {
+        let args: Vec<_> = values
+            .iter()
+            .flat_map(|arg| arg.as_struct())
+            .cloned()
+            .collect();
+
+        let types: Vec<_> = values.iter().map(|v| v.get_type()).collect();
+
+        let node = match codegen.exprs.get_expr(name)? {
+            Expr::FnDef { rhs, .. } => rhs,
+            _ => return None,
+        };
+
+        let ret = node.return_type(codegen.exprs, &types).ok()?;
+
+        let func_id = match self.backend.module.get_name(name) {
+            Some(FuncOrDataId::Func(id)) => id,
+            None => {
+                let mut ctx = FunctionBuilderContext::new();
+                let mut function = Function::new();
+
+                let (mut builder, function) =
+                    self.backend
+                        .get_builder(name, &types, &ret, &mut function, &mut ctx);
+
+                let value = codegen.codegen_expr(&mut builder, node).ok()?;
+
+                builder.build_return(value);
+                function
+            }
+            _ => return None,
+        };
+
+        let func_ref = self
+            .backend
+            .module
+            .declare_func_in_func(func_id, self.builder.func);
+
+        let ins = self.builder.ins().call(func_ref, &args);
+        let values = self.builder.inst_results(ins);
+
+        CraneliftValue::from_values(values, &ret)
     }
 
     fn const_number(&mut self, number: f64) -> Self::NumberValue {
-        todo!()
+        [self.builder.ins().f64const(number)]
     }
 
     fn point(&mut self, x: Self::NumberValue, y: Self::NumberValue) -> Self::PointValue {
-        todo!()
+        [x[0], y[0]]
     }
 
     fn number_list(
@@ -71,38 +146,38 @@ impl<'ctx> CodeBuilder<FuncId> for BackendBuilder<'ctx> {
 
     fn map_list(
         &mut self,
-        list: crate::lang::generic_value::GenericList<Self::NumberListValue, Self::PointListValue>,
-        output_ty: crate::lang::generic_value::ListType,
+        list: GenericList<Self::NumberListValue, Self::PointListValue>,
+        output_ty: ListType,
         f: impl Fn(
-            crate::lang::generic_value::GenericList<Self::NumberValue, Self::PointValue>,
-        )
-            -> crate::lang::generic_value::GenericList<Self::NumberValue, Self::PointValue>,
-    ) -> crate::lang::generic_value::GenericList<Self::NumberListValue, Self::PointListValue> {
+            &mut Self,
+            GenericList<Self::NumberValue, Self::PointValue>,
+        ) -> GenericList<Self::NumberValue, Self::PointValue>,
+    ) -> GenericList<Self::NumberListValue, Self::PointListValue> {
         todo!()
     }
 
     fn get_x(&mut self, point: Self::PointValue) -> Self::NumberValue {
-        todo!()
+        [point[0]]
     }
 
     fn get_y(&mut self, point: Self::PointValue) -> Self::NumberValue {
-        todo!()
+        [point[1]]
     }
 
     fn add(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        [self.builder.ins().fadd(lhs[0], rhs[0])]
     }
 
     fn sub(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        [self.builder.ins().fsub(lhs[0], rhs[0])]
     }
 
     fn mul(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        [self.builder.ins().fmul(lhs[0], rhs[0])]
     }
 
     fn div(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        [self.builder.ins().fdiv(lhs[0], rhs[0])]
     }
 
     fn pow(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
@@ -110,11 +185,11 @@ impl<'ctx> CodeBuilder<FuncId> for BackendBuilder<'ctx> {
     }
 
     fn neg(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        [self.builder.ins().fneg(lhs[0])]
     }
 
     fn sqrt(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        [self.builder.ins().sqrt(lhs[0])]
     }
 
     fn sin(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
