@@ -25,31 +25,9 @@ pub trait ExecutionEngine {
 
     fn eval(&self, name: &str, ty: &ValueType) -> Option<JitValue>;
 
-    fn get_explicit_fn(
-        &self,
-        name: &str,
-        ty: &ValueType,
-    ) -> Option<
-        ExplicitJitFn<
-            Self::ExplicitNumberFn,
-            Self::ExplicitPointFn,
-            Self::ExplicitNumberListFn,
-            Self::ExplicitPointListFn,
-        >,
-    >;
+    fn get_explicit_fn(&self, name: &str, ty: &ValueType) -> Option<ExplicitJitFn<Self>>;
 
-    fn get_implicit_fn(
-        &self,
-        name: &str,
-        ty: &ValueType,
-    ) -> Option<
-        ImplicitJitFn<
-            Self::ImplicitNumberFn,
-            Self::ImplicitPointFn,
-            Self::ImplicitNumberListFn,
-            Self::ImplicitPointListFn,
-        >,
-    >;
+    fn get_implicit_fn(&self, name: &str, ty: &ValueType) -> Option<ImplicitJitFn<Self>>;
 }
 
 pub type BuilderValue<Builder: CodeBuilder> = GenericValue<

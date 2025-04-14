@@ -65,18 +65,7 @@ impl ExecutionEngine for CraneliftBackend {
         }
     }
 
-    fn get_explicit_fn(
-        &self,
-        name: &str,
-        ty: &ValueType,
-    ) -> Option<
-        ExplicitJitFn<
-            Self::ExplicitNumberFn,
-            Self::ExplicitPointFn,
-            Self::ExplicitNumberListFn,
-            Self::ExplicitPointListFn,
-        >,
-    > {
+    fn get_explicit_fn(&self, name: &str, ty: &ValueType) -> Option<ExplicitJitFn<Self>> {
         let func_id = if let FuncOrDataId::Func(id) = self.module.get_name(name)? {
             id
         } else {
@@ -104,18 +93,7 @@ impl ExecutionEngine for CraneliftBackend {
         }
     }
 
-    fn get_implicit_fn(
-        &self,
-        name: &str,
-        ty: &ValueType,
-    ) -> Option<
-        ImplicitJitFn<
-            Self::ImplicitNumberFn,
-            Self::ImplicitPointFn,
-            Self::ImplicitNumberListFn,
-            Self::ImplicitPointListFn,
-        >,
-    > {
+    fn get_implicit_fn(&self, name: &str, ty: &ValueType) -> Option<ImplicitJitFn<Self>> {
         let func_id = if let FuncOrDataId::Func(id) = self.module.get_name(name)? {
             id
         } else {

@@ -105,7 +105,6 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
 
         self.builder.ins().jump(header_block, &[]);
         self.builder.switch_to_block(header_block);
-        self.builder.seal_block(header_block);
 
         let current_index = self.builder.ins().stack_load(index_type, index_var, 0);
 

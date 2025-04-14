@@ -35,27 +35,12 @@ impl<BackendT: ExecutionEngine> CompiledExprs<BackendT> {
 
 pub enum CompiledExpr<BackendT: ExecutionEngine> {
     Implicit {
-        lhs: ImplicitJitFn<
-            BackendT::ImplicitNumberFn,
-            BackendT::ImplicitPointFn,
-            BackendT::ImplicitNumberListFn,
-            BackendT::ImplicitPointListFn,
-        >,
+        lhs: ImplicitJitFn<BackendT>,
         op: ComparisonOp,
-        rhs: ImplicitJitFn<
-            BackendT::ImplicitNumberFn,
-            BackendT::ImplicitPointFn,
-            BackendT::ImplicitNumberListFn,
-            BackendT::ImplicitPointListFn,
-        >,
+        rhs: ImplicitJitFn<BackendT>,
     },
     Explicit {
-        lhs: ExplicitJitFn<
-            BackendT::ExplicitNumberFn,
-            BackendT::ExplicitPointFn,
-            BackendT::ExplicitNumberListFn,
-            BackendT::ExplicitPointListFn,
-        >,
+        lhs: ExplicitJitFn<BackendT>,
     },
     Constant {
         value: JitValue,

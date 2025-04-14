@@ -61,6 +61,8 @@ pub fn points_server() -> RecvStream<'static, Event> {
         let mut mid = Somsed::DEFAULT_MID;
         let mut range = Somsed::DEFAULT_RANGE;
 
+        let mut backend;
+
         loop {
             let mut compute_requests = HashSet::new();
 
@@ -88,7 +90,8 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             continue;
                         }
 
-                        let mut backend = CraneliftBackend::new().unwrap();
+                        backend = CraneliftBackend::new().unwrap();
+
                         compiled_exprs = backend.compile_expressions(&expressions);
 
                         for &id in expressions.exprs.keys() {

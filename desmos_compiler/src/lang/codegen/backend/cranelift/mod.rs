@@ -63,6 +63,7 @@ impl CraneliftBackend {
             .compile_fn(builder, expr)
             .with_context(|| format!("Failed to compile function `{}`", name))?;
 
+        println!("{}", ctx.func.display());
         self.module
             .define_function(func_id, ctx)
             .with_context(|| format!("Failed to define function `{}`", name))?;

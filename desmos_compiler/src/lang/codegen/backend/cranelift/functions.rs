@@ -5,15 +5,18 @@ use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module};
 
+#[macro_export]
 macro_rules! cranelift_sig {
-    (fn() -> $ret:ident) => {{
-        let mut sig = cranelift::codegen::ir::Signature::new(cranelift::codegen::isa::CallConv::SystemV);
+    ($module:expr, fn() -> $ret:ident) => {{
+        let module = $module;
+        let mut sig = module.make_signature();
         sig.returns.push(cranelift::codegen::ir::AbiParam::new(cranelift::codegen::ir::types::$ret));
         sig
     }};
 
-    (fn($($param:ident),*) -> $ret:ident) => {{
-        let mut sig = cranelift::codegen::ir::Signature::new(cranelift::codegen::isa::CallConv::SystemV);
+    ($module:expr, fn($($param:ident),*) -> $ret:ident) => {{
+        let module = $module;
+        let mut sig = module.make_signature();
         $(
             sig.params.push(cranelift::codegen::ir::AbiParam::new(cranelift::codegen::ir::types::$param));
         )*
@@ -59,11 +62,11 @@ impl ImportedFunctions {
         let free_id = module.declare_function("free", Linkage::Import, &free_sig)?;
 
         // pow: fn(f64, f64) -> f64
-        let pow_sig = cranelift_sig!(fn(F64, F64) -> F64);
+        let pow_sig = cranelift_sig!(&module, fn(F64, F64) -> F64);
         let pow_id = module.declare_function("pow", Linkage::Import, &pow_sig)?;
 
         // trig: fn(f64) -> f64
-        let trig_sig = cranelift_sig!(fn(F64) -> F64);
+        let trig_sig = cranelift_sig!(&module, fn(F64) -> F64);
         let sin_id = module.declare_function("sin", Linkage::Import, &trig_sig)?;
         let cos_id = module.declare_function("cos", Linkage::Import, &trig_sig)?;
         let tan_id = module.declare_function("tan", Linkage::Import, &trig_sig)?;
