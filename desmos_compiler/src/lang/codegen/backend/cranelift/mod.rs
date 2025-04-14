@@ -5,11 +5,8 @@ use cranelift::{
     prelude::{isa::CallConv, *},
 };
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, FuncOrDataId, Linkage, Module};
-use jit::{
-    convert_list, ExplicitFnImpl, ExplicitListFnImpl, ImplicitFnImpl, ImplicitListFnImpl,
-    ListLayout,
-};
+use cranelift_module::{FuncId, Linkage, Module};
+use functions::{import_symbols, ImportedFunctions};
 
 use crate::{
     expressions::Expressions,
@@ -22,7 +19,6 @@ use crate::{
 
 use super::{
     compiled_exprs::{CompiledExpr, CompiledExprs},
-    jit::{ExplicitJitFn, ImplicitJitFn, JitValue, PointValue},
     ExecutionEngine,
 };
 
@@ -34,40 +30,20 @@ mod functions;
 
 pub struct CraneliftBackend {
     module: JITModule,
-    free_id: FuncId,
-    malloc_id: FuncId,
+    functions: ImportedFunctions,
 }
 
 impl CraneliftBackend {
     pub fn new() -> Result<Self> {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names())?;
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names())?;
+
+        import_symbols(&mut builder);
 
         let mut module = JITModule::new(builder);
 
-        let mut malloc_sig = module.make_signature();
+        let functions = ImportedFunctions::new(&mut module)?;
 
-        malloc_sig.params.push(AbiParam::new(types::I64));
-        malloc_sig
-            .returns
-            .push(AbiParam::new(module.target_config().pointer_type()));
-
-        let malloc_id = module.declare_function("malloc", Linkage::Import, &malloc_sig)?;
-
-        let mut free_sig = module.make_signature();
-
-        free_sig
-            .params
-            .push(AbiParam::new(module.target_config().pointer_type()));
-
-        free_sig.params.push(AbiParam::new(types::I64));
-
-        let free_id = module.declare_function("free", Linkage::Import, &free_sig)?;
-
-        Ok(Self {
-            module,
-            free_id,
-            malloc_id,
-        })
+        Ok(Self { module, functions })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -91,7 +67,6 @@ impl CraneliftBackend {
             .define_function(func_id, ctx)
             .with_context(|| format!("Failed to define function `{}`", name))?;
 
-        println!("{}", ctx.func.display());
         self.module.clear_context(ctx);
 
         Ok(())

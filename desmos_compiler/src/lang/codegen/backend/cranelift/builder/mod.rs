@@ -174,7 +174,14 @@ impl<'a, 'ctx> CodeBuilder for CraneliftBuilder<'a, 'ctx> {
     }
 
     fn pow(&mut self, lhs: Self::NumberValue, rhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        let func = self
+            .backend
+            .module
+            .declare_func_in_func(self.backend.functions.pow_id, self.builder.func);
+
+        let inst = self.builder.ins().call(func, &[lhs[0], rhs[0]]);
+
+        [self.builder.inst_results(inst)[0]]
     }
 
     fn neg(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
@@ -186,14 +193,35 @@ impl<'a, 'ctx> CodeBuilder for CraneliftBuilder<'a, 'ctx> {
     }
 
     fn sin(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        let func = self
+            .backend
+            .module
+            .declare_func_in_func(self.backend.functions.sin_id, self.builder.func);
+
+        let inst = self.builder.ins().call(func, &[lhs[0]]);
+
+        [self.builder.inst_results(inst)[0]]
     }
 
     fn cos(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        let func = self
+            .backend
+            .module
+            .declare_func_in_func(self.backend.functions.cos_id, self.builder.func);
+
+        let inst = self.builder.ins().call(func, &[lhs[0]]);
+
+        [self.builder.inst_results(inst)[0]]
     }
 
     fn tan(&mut self, lhs: Self::NumberValue) -> Self::NumberValue {
-        todo!()
+        let func = self
+            .backend
+            .module
+            .declare_func_in_func(self.backend.functions.tan_id, self.builder.func);
+
+        let inst = self.builder.ins().call(func, &[lhs[0]]);
+
+        [self.builder.inst_results(inst)[0]]
     }
 }

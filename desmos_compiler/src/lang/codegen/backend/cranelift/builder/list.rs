@@ -105,6 +105,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
 
         self.builder.ins().jump(header_block, &[]);
         self.builder.switch_to_block(header_block);
+        self.builder.seal_block(header_block);
 
         let current_index = self.builder.ins().stack_load(index_type, index_var, 0);
 
@@ -192,7 +193,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
         let malloc_fn = self
             .backend
             .module
-            .declare_func_in_func(self.backend.malloc_id, self.builder.func);
+            .declare_func_in_func(self.backend.functions.malloc_id, self.builder.func);
 
         let raw_ptr = self.builder.ins().call(malloc_fn, &[size]);
 
@@ -208,7 +209,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
         let free_fn = self
             .backend
             .module
-            .declare_func_in_func(self.backend.free_id, self.builder.func);
+            .declare_func_in_func(self.backend.functions.free_id, self.builder.func);
 
         self.builder
             .ins()
