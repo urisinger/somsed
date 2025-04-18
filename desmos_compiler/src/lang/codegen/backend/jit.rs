@@ -1,10 +1,12 @@
-use crate::lang::generic_value::{GenericList, GenericValue};
-
 use super::ExecutionEngine;
 
-pub type JitValue = GenericValue<f64, PointValue, Vec<f64>, Vec<PointValue>>;
-
-pub type JitListValue = GenericList<Vec<f64>, Vec<PointValue>>;
+#[derive(Debug, Clone)]
+pub enum JitValue {
+    Number(f64),
+    Point(PointValue),
+    NumberList(Vec<f64>),
+    PointList(Vec<PointValue>),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PointValue {
@@ -16,79 +18,42 @@ pub trait ExplicitFn<T> {
     fn call(&self, x: f64) -> T;
 }
 
-pub type ExplicitJitFn<BackendT: ExecutionEngine> = GenericValue<
-    BackendT::ExplicitNumberFn,
-    BackendT::ExplicitPointFn,
-    BackendT::ExplicitNumberListFn,
-    BackendT::ExplicitPointListFn,
->;
+pub enum ExplicitJitFn<BackendT: ExecutionEngine + ?Sized> {
+    Number(BackendT::ExplicitNumberFn),
+    Point(BackendT::ExplicitPointFn),
+    NumberList(BackendT::ExplicitNumberListFn),
+    PointList(BackendT::ExplicitPointListFn),
+}
 
-pub type ExplicitListJitFn<BackendT: ExecutionEngine> =
-    GenericList<BackendT::ExplicitNumberListFn, BackendT::ExplicitPointListFn>;
-
-impl<
-        NumberFn: ExplicitFn<f64>,
-        PointFn: ExplicitFn<PointValue>,
-        NumberListFn: ExplicitFn<Vec<f64>>,
-        PointListFn: ExplicitFn<Vec<PointValue>>,
-    > GenericValue<NumberFn, PointFn, NumberListFn, PointListFn>
-{
+impl<BackendT: ExecutionEngine> ExplicitJitFn<BackendT> {
     pub fn call(&self, x: f64) -> JitValue {
         match self {
-            GenericValue::Number(f) => JitValue::Number(f.call(x)),
-            GenericValue::Point(f) => JitValue::Point(f.call(x)),
-            GenericValue::List(generic_list) => JitValue::List(generic_list.call(x)),
+            ExplicitJitFn::Number(f) => JitValue::Number(f.call(x)),
+            ExplicitJitFn::Point(f) => JitValue::Point(f.call(x)),
+            ExplicitJitFn::NumberList(f) => JitValue::NumberList(f.call(x)),
+            ExplicitJitFn::PointList(f) => JitValue::PointList(f.call(x)),
         }
     }
 }
 
-impl<NumberListFn: ExplicitFn<Vec<f64>>, PointListFn: ExplicitFn<Vec<PointValue>>>
-    GenericList<NumberListFn, PointListFn>
-{
-    pub fn call(&self, x: f64) -> JitListValue {
-        match self {
-            GenericList::Number(f) => JitListValue::Number(f.call(x)),
-            GenericList::PointList(f) => JitListValue::PointList(f.call(x)),
-        }
-    }
-}
 pub trait ImplicitFn<T> {
     fn call_implicit(&self, x: f64, y: f64) -> T;
 }
 
-pub type ImplicitJitFn<BackendT: ExecutionEngine> = GenericValue<
-    BackendT::ImplicitNumberFn,
-    BackendT::ImplicitPointFn,
-    BackendT::ImplicitNumberListFn,
-    BackendT::ImplicitPointListFn,
->;
-
-pub type ImplicitListJitFn<BackendT: ExecutionEngine> =
-    GenericList<BackendT::ImplicitNumberListFn, BackendT::ImplicitPointListFn>;
-
-impl<
-        NumberFn: ImplicitFn<f64>,
-        PointFn: ImplicitFn<PointValue>,
-        NumberListFn: ImplicitFn<Vec<f64>>,
-        PointListFn: ImplicitFn<Vec<PointValue>>,
-    > GenericValue<NumberFn, PointFn, NumberListFn, PointListFn>
-{
-    pub fn call_implicit(&self, x: f64, y: f64) -> JitValue {
-        match self {
-            GenericValue::Number(f) => JitValue::Number(f.call_implicit(x, y)),
-            GenericValue::Point(f) => JitValue::Point(f.call_implicit(x, y)),
-            GenericValue::List(generic_list) => JitValue::List(generic_list.call_implicit(x, y)),
-        }
-    }
+pub enum ImplicitJitFn<BackendT: ExecutionEngine + ?Sized> {
+    Number(BackendT::ImplicitNumberFn),
+    Point(BackendT::ImplicitPointFn),
+    NumberList(BackendT::ImplicitNumberListFn),
+    PointList(BackendT::ImplicitPointListFn),
 }
 
-impl<NumberListFn: ImplicitFn<Vec<f64>>, PointListFn: ImplicitFn<Vec<PointValue>>>
-    GenericList<NumberListFn, PointListFn>
-{
-    pub fn call_implicit(&self, x: f64, y: f64) -> JitListValue {
+impl<BackendT: ExecutionEngine> ImplicitJitFn<BackendT> {
+    pub fn call_implicit(&self, x: f64, y: f64) -> JitValue {
         match self {
-            GenericList::Number(f) => JitListValue::Number(f.call_implicit(x, y)),
-            GenericList::PointList(f) => JitListValue::PointList(f.call_implicit(x, y)),
+            ImplicitJitFn::Number(f) => JitValue::Number(f.call_implicit(x, y)),
+            ImplicitJitFn::Point(f) => JitValue::Point(f.call_implicit(x, y)),
+            ImplicitJitFn::NumberList(f) => JitValue::NumberList(f.call_implicit(x, y)),
+            ImplicitJitFn::PointList(f) => JitValue::PointList(f.call_implicit(x, y)),
         }
     }
 }

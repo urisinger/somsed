@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::Div};
 
 use desmos_compiler::{
     expressions::ExpressionId,
-    lang::codegen::backend::jit::{JitListValue, JitValue, PointValue},
+    lang::codegen::backend::jit::{JitValue, PointValue},
 };
 use iced::{
     event::Status,
@@ -108,7 +108,7 @@ impl Program<Message> for GraphRenderer<'_> {
                             Color::from_rgb8(45, 112, 179),
                         );
                     }
-                    JitValue::List(JitListValue::PointList(l)) => {
+                    JitValue::PointList(l) => {
                         println!("{l:?}");
                         for PointValue { x, y } in l {
                             frame.fill(
@@ -125,7 +125,7 @@ impl Program<Message> for GraphRenderer<'_> {
                             );
                         }
                     }
-                    JitValue::List(_) => {}
+                    JitValue::NumberList(_) => {}
                 },
                 ComputationResult::Implicit(_) => eprintln!("implicit not yet implemented"),
             })

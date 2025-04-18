@@ -13,7 +13,7 @@ pub enum GenericValue<NumberT, PointT, NumberListT, PointListT> {
 //Even tho is is name GenericList, it can also represent a generic scaler
 pub enum GenericList<NumberListT, PointListT> {
     Number(NumberListT),
-    PointList(PointListT),
+    Point(PointListT),
 }
 
 pub type GenericScalerValue<NumberT, PointT> = GenericList<NumberT, PointT>;
@@ -29,7 +29,7 @@ impl<NumberT, PointT, NumberListT, PointListT>
             Self::Point(_) => ValueType::Point(()),
             Self::List(list) => ValueType::List(match list {
                 GenericList::Number(_) => ListType::Number(()),
-                GenericList::PointList(_) => ListType::PointList(()),
+                GenericList::Point(_) => ListType::Point(()),
             }),
         }
     }
@@ -37,7 +37,7 @@ impl<NumberT, PointT, NumberListT, PointListT>
     pub fn lift_scaler(self) -> Option<GenericScalerValue<NumberT, PointT>> {
         match self {
             Self::Number(n) => Some(GenericScalerValue::Number(n)),
-            Self::Point(p) => Some(GenericScalerValue::PointList(p)),
+            Self::Point(p) => Some(GenericScalerValue::Point(p)),
             Self::List(_) => None,
         }
     }
@@ -59,10 +59,17 @@ impl<NumberListT: Clone, PointListT: Clone> Clone for GenericList<NumberListT, P
     fn clone(&self) -> Self {
         match self {
             GenericList::Number(nl) => GenericList::Number(nl.clone()),
-            GenericList::PointList(pl) => GenericList::PointList(pl.clone()),
+            GenericList::Point(pl) => GenericList::Point(pl.clone()),
         }
     }
 }
+
+impl<NumberT: Copy, PointT: Copy, NumberListT: Copy, PointListT: Copy> Copy
+    for GenericValue<NumberT, PointT, NumberListT, PointListT>
+{
+}
+
+impl<NumberListT: Copy, PointListT: Copy> Copy for GenericList<NumberListT, PointListT> {}
 
 impl<NumberT: PartialEq, PointT: PartialEq, NumberListT: PartialEq, PointListT: PartialEq> PartialEq
     for GenericValue<NumberT, PointT, NumberListT, PointListT>
@@ -88,7 +95,7 @@ impl<NumberListT: PartialEq, PointListT: PartialEq> PartialEq
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (GenericList::Number(nl1), GenericList::Number(nl2)) => nl1 == nl2,
-            (GenericList::PointList(pl1), GenericList::PointList(pl2)) => pl1 == pl2,
+            (GenericList::Point(pl1), GenericList::Point(pl2)) => pl1 == pl2,
             _ => false,
         }
     }
@@ -112,7 +119,7 @@ impl<NumberListT: Debug, PointListT: Debug> Debug for GenericList<NumberListT, P
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             GenericList::Number(nl) => write!(f, "NumberList({:?})", nl),
-            GenericList::PointList(pl) => write!(f, "PointList({:?})", pl),
+            GenericList::Point(pl) => write!(f, "PointList({:?})", pl),
         }
     }
 }
@@ -131,7 +138,7 @@ impl ListType {
     pub fn name(&self) -> &'static str {
         match self {
             GenericList::Number(_) => "NumberList",
-            GenericList::PointList(_) => "PointList",
+            GenericList::Point(_) => "PointList",
         }
     }
 }

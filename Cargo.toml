@@ -1,6 +1,7 @@
 [workspace]
 members = [
-  "desmos_compiler"
+  "desmos_compiler",
+  "backends/llvm-backend"
 ]
 
 [workspace.dependencies]

@@ -215,11 +215,11 @@ fn parse_node(pairs: Pairs<Rule>) -> Result<Node> {
                         rhs: Box::new(parse_node(exponent.into_inner())?),
                     }
                 }
-                _ => Node::UnaryOp {
+                _ => Node::Extract {
                     val: Box::new(lhs?),
-                    op: match op.as_rule() {
-                        Rule::dot_x => UnaryOp::GetX,
-                        Rule::dot_y => UnaryOp::GetY,
+                    index: match op.as_rule() {
+                        Rule::dot_x => 0,
+                        Rule::dot_y => 1,
 
                         _ => unreachable!(),
                     },

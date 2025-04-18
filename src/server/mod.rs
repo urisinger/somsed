@@ -1,12 +1,14 @@
 use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Result};
-use desmos_compiler::lang::codegen::backend::compiled_exprs::{CompiledExpr, CompiledExprs};
 use desmos_compiler::lang::codegen::backend::cranelift::CraneliftBackend;
-use desmos_compiler::lang::codegen::backend::jit::{ExplicitFn, JitValue};
-use desmos_compiler::lang::generic_value::GenericValue;
+use desmos_compiler::lang::codegen::backend::jit::{ExplicitFn, ExplicitJitFn, JitValue};
+use desmos_compiler::lang::codegen::backend::ExecutionEngine;
+use desmos_compiler::lang::codegen::ir::{IRType, SegmentKey};
+use desmos_compiler::lang::codegen::IRGen;
+use desmos_compiler::lang::expr::{Expr, ResolvedExpr};
 use flume::r#async::RecvStream;
 use iced::Vector;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::thread;
 
 // Define the server requests
@@ -55,13 +57,14 @@ pub fn points_server() -> RecvStream<'static, Event> {
     thread::spawn(move || {
         let mut expressions = Expressions::new();
 
-        let mut compiled_exprs = CompiledExprs::new();
         event_tx.send(Event::Sender(equation_tx)).unwrap();
 
         let mut mid = Somsed::DEFAULT_MID;
         let mut range = Somsed::DEFAULT_RANGE;
 
-        let mut backend;
+        let mut backend = None;
+        let mut segment_errors = HashMap::new();
+        let mut errors = HashMap::new();
 
         loop {
             let mut compute_requests = HashSet::new();
@@ -90,32 +93,30 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             continue;
                         }
 
-                        backend = CraneliftBackend::new().unwrap();
+                        let ir;
+                        (ir, errors) = IRGen::generate_ir(&expressions);
+                        backend = Some(CraneliftBackend::new().unwrap());
 
-                        compiled_exprs = backend.compile_expressions(&expressions);
+                        segment_errors = backend.as_mut().unwrap().compile_module(&ir);
 
                         for &id in expressions.exprs.keys() {
-                            if !compiled_exprs.errors.contains_key(&id) {
+                            if !errors.contains_key(&id) {
                                 event_tx.send(Event::Success { id }).unwrap();
                             }
                         }
 
-                        for (&id, e) in &compiled_exprs.errors {
+                        for (&id, e) in &errors {
                             event_tx
                                 .send(Event::Error {
                                     id,
-                                    message: format!("Failed to compile expression: {}", e),
+                                    message: format!("Error during compilation: {}", e),
                                 })
                                 .unwrap();
                         }
-
-                        if compiled_exprs.compiled.contains_key(&id) {
-                            compute_requests.insert(id);
-                        }
+                        compute_requests.insert(id);
                     }
                     PointsServerRequest::Remove { id } => {
-                        compiled_exprs.compiled.remove(&id);
-                        compiled_exprs.errors.remove(&id);
+                        expressions.exprs.remove(&id);
                     }
                     PointsServerRequest::Resize {
                         range: new_range,
@@ -123,7 +124,7 @@ pub fn points_server() -> RecvStream<'static, Event> {
                     } => {
                         range = new_range;
                         mid = new_mid;
-                        compiled_exprs.compiled.keys().for_each(|id| {
+                        expressions.exprs.keys().for_each(|id| {
                             compute_requests.insert(*id);
                         });
                     }
@@ -135,34 +136,61 @@ pub fn points_server() -> RecvStream<'static, Event> {
             }
 
             for &id in compute_requests.iter() {
-                let compiled = compiled_exprs.compiled.get(&id);
-                let points_result = match compiled {
-                    Some(CompiledExpr::Explicit { lhs }) => match lhs {
-                        GenericValue::Number(lhs) => {
+                let backend = backend
+                    .as_ref()
+                    .expect("backend should have been initlized");
+                let points_result: Result<ComputationResult> = (|| match &expressions.exprs[&id] {
+                    ResolvedExpr {
+                        expr: Expr::Explicit { lhs },
+                        used_idents,
+                    } if !used_idents.is_empty() => match backend.get_explicit_fn(
+                        &format!("explicit_{}(f64)", id.0),
+                        &lhs.ty(&expressions, &[IRType::NUMBER, IRType::NUMBER])?,
+                    ) {
+                        Some(ExplicitJitFn::Number(lhs)) => {
                             points_explicit(&|n: f64| lhs.call(n), range, mid, 9, 14)
                                 .map(ComputationResult::Explicit)
                         }
-                        GenericValue::Point(_) => {
+                        Some(ExplicitJitFn::Point(_)) => {
                             Err(anyhow!("Cant Graph explicit graph of points"))
                         }
-                        GenericValue::List(_) => Err(anyhow!("Cant Graph explicit graph of list")),
+                        Some(_) => Err(anyhow!("Cant Graph explicit graph of list")),
+                        None => Err(anyhow!(
+                            "{:?}",
+                            segment_errors.get(&SegmentKey::new(
+                                format!("explicit_{}", id.0),
+                                vec![IRType::NUMBER, IRType::NUMBER]
+                            ))
+                        )),
                     },
-                    Some(CompiledExpr::Constant { value }) => {
-                        Ok(ComputationResult::Constant(value.clone()))
+
+                    ResolvedExpr {
+                        expr: Expr::Explicit { lhs: node },
+                        ..
                     }
-                    Some(_) => Err(anyhow!("Only explicit expressions are supported")),
-                    None => Err(anyhow!("Failed to retrieve compiled expression")),
-                };
+                    | ResolvedExpr {
+                        expr: Expr::VarDef { rhs: node, .. },
+                        ..
+                    } => Ok(ComputationResult::Constant(
+                        backend
+                            .eval(
+                                &format!("explicit_{}()", id.0),
+                                &node.ty(&expressions, &[])?,
+                            )
+                            .expect("type does not match function"),
+                    )),
+                    _ => Err(anyhow!("Only explicit expressions are supported")),
+                })();
 
                 match points_result {
                     Ok(points) => {
                         event_tx.send(Event::Computed { id, points }).unwrap();
                     }
                     Err(e) => {
-                        let message = if let Some(e) = compiled_exprs.errors.get(&id) {
-                            format!("Error during computation: {}", e)
+                        let message = if let Some(e) = errors.get(&id) {
+                            format!("Error during computation: {:?}", e)
                         } else {
-                            format!("Error during computation: {}", e)
+                            format!("Error during computation: {:?}", e)
                         };
                         event_tx.send(Event::Error { id, message }).unwrap();
                     }

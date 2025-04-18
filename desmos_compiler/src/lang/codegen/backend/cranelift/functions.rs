@@ -24,7 +24,7 @@ macro_rules! cranelift_sig {
         sig
     }};
 }
-
+#[derive(Debug, Clone, Copy)]
 pub struct ImportedFunctions {
     pub free_id: FuncId,
     pub malloc_id: FuncId,

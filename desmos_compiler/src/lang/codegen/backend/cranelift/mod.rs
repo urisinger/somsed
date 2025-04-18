@@ -1,26 +1,13 @@
-use anyhow::{anyhow, Context, Result};
+use std::collections::HashMap;
+
+use anyhow::Result;
 use builder::CraneliftBuilder;
-use cranelift::{
-    codegen::ir::Function,
-    prelude::{isa::CallConv, *},
-};
+use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{FuncOrDataId, Linkage, Module};
 use functions::{import_symbols, ImportedFunctions};
 
-use crate::{
-    expressions::Expressions,
-    lang::{
-        codegen::CodeGen,
-        expr::{Expr, Node},
-        generic_value::{GenericList, GenericValue, ValueType},
-    },
-};
-
-use super::{
-    compiled_exprs::{CompiledExpr, CompiledExprs},
-    ExecutionEngine,
-};
+use crate::lang::codegen::ir::{IRModule, IRScalerType, IRType, SegmentKey};
 
 pub mod builder;
 pub mod jit;
@@ -46,289 +33,98 @@ impl CraneliftBackend {
         Ok(Self { module, functions })
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn compile_single_function<'a>(
-        &mut self,
-        name: &str,
-        args: &[ValueType],
-        ret_type: &ValueType,
-        expr: &'a Node,
-        codegen: &mut CodeGen<'a>,
-        ctx: &mut codegen::Context,
-        builder_ctx: &mut FunctionBuilderContext,
-    ) -> Result<()> {
-        let (builder, func_id) = self.get_builder(name, args, ret_type, &mut ctx.func, builder_ctx);
+    pub fn make_sig(&self, key: &SegmentKey, ret_type: IRType) -> Signature {
+        let mut signature = self.module.make_signature();
 
-        codegen
-            .compile_fn(builder, expr)
-            .with_context(|| format!("Failed to compile function `{}`", name))?;
+        use IRScalerType::*;
+        use IRType::*;
+        for ty in &key.args {
+            match ty {
+                Scaler(Number) => {
+                    signature.params.push(AbiParam::new(types::F64));
+                }
+                Scaler(Point) => {
+                    signature.params.push(AbiParam::new(types::F64));
+                    signature.params.push(AbiParam::new(types::F64));
+                }
+                List(_) => {
+                    signature.params.push(AbiParam::new(types::I64));
+                    signature.params.push(AbiParam::new(types::I64));
+                }
+            };
+        }
 
-        println!("{}", ctx.func.display());
-        self.module
-            .define_function(func_id, ctx)
-            .with_context(|| format!("Failed to define function `{}`", name))?;
-
-        self.module.clear_context(ctx);
-
-        Ok(())
+        match ret_type {
+            Scaler(Number) => {
+                signature.returns.push(AbiParam::new(types::F64));
+            }
+            Scaler(Point) => {
+                signature.returns.push(AbiParam::new(types::F64));
+                signature.returns.push(AbiParam::new(types::F64));
+            }
+            List(_) => {
+                signature.returns.push(AbiParam::new(types::I64));
+                signature.returns.push(AbiParam::new(types::I64));
+            }
+        }
+        signature
     }
 
-    pub fn compile_expressions(&mut self, exprs: &Expressions) -> CompiledExprs<Self> {
-        let mut codegen = CodeGen::new(exprs);
-        let mut compiled_exprs: CompiledExprs<Self> = CompiledExprs::new();
+    pub fn compile_module(&mut self, ir_module: &IRModule) -> HashMap<SegmentKey, String> {
+        // we must do everything in 2 passes
+        for (key, segment) in ir_module.iter_segments() {
+            let signature =
+                self.make_sig(key, segment.ret().expect("segment cannot be empty").ty());
+            let name = key.to_string();
+            _ = self
+                .module
+                .declare_function(&name, Linkage::Export, &signature)
+                .expect("failed to declare function, this indicates a bug");
+        }
 
         let mut ctx = codegen::Context::new();
         let mut builder_ctx = FunctionBuilderContext::new();
 
-        for (id, expr) in &exprs.exprs {
-            match &expr.expr {
-                Expr::Implicit { lhs, rhs, .. } => {
-                    let args = [ValueType::Number(()), ValueType::Number(())];
+        let mut errors = HashMap::new();
 
-                    let lhs_name = format!("implicit_{}_lhs", id.0);
-                    match lhs.return_type(exprs, &args) {
-                        Ok(ret_type) => {
-                            if let Err(e) = self.compile_single_function(
-                                &lhs_name,
-                                &args,
-                                &ret_type,
-                                lhs,
-                                &mut codegen,
-                                &mut ctx,
-                                &mut builder_ctx,
-                            ) {
-                                compiled_exprs.errors.insert(*id, format!("{:?}", e));
-                            }
-                        }
-                        Err(e) => {
-                            compiled_exprs.errors.insert(*id, e.to_string());
-                        }
-                    }
-
-                    let rhs_name = format!("implicit_{}_rhs", id.0);
-                    match rhs.return_type(exprs, &args) {
-                        Ok(ret_type) => {
-                            if let Err(e) = self.compile_single_function(
-                                &rhs_name,
-                                &args,
-                                &ret_type,
-                                rhs,
-                                &mut codegen,
-                                &mut ctx,
-                                &mut builder_ctx,
-                            ) {
-                                compiled_exprs.errors.insert(*id, format!("{:?}", e));
-                            }
-                        }
-                        Err(e) => {
-                            compiled_exprs.errors.insert(*id, e.to_string());
-                        }
-                    }
-                }
-
-                Expr::Explicit { lhs } => {
-                    let name = format!("explicit_{}", id.0);
-                    let args = if expr.used_idents.contains("x") {
-                        vec![ValueType::Number(())]
-                    } else {
-                        vec![]
-                    };
-
-                    match lhs.return_type(exprs, &args) {
-                        Ok(ret_type) => {
-                            if let Err(e) = self.compile_single_function(
-                                &name,
-                                &args,
-                                &ret_type,
-                                lhs,
-                                &mut codegen,
-                                &mut ctx,
-                                &mut builder_ctx,
-                            ) {
-                                compiled_exprs.errors.insert(*id, format!("{:?}", e));
-                            }
-                        }
-                        Err(e) => {
-                            compiled_exprs.errors.insert(*id, e.to_string());
-                        }
-                    }
-                }
-
-                Expr::VarDef { rhs, ident } => {
-                    if !expr.used_idents.is_empty() {
-                        continue;
-                    }
-
-                    let name = ident.to_string();
-                    let args = [];
-
-                    match rhs.return_type(exprs, &args) {
-                        Ok(ret_type) => {
-                            if let Err(e) = self.compile_single_function(
-                                &name,
-                                &args,
-                                &ret_type,
-                                rhs,
-                                &mut codegen,
-                                &mut ctx,
-                                &mut builder_ctx,
-                            ) {
-                                compiled_exprs.errors.insert(*id, format!("{:?}", e));
-                            }
-                        }
-                        Err(e) => {
-                            compiled_exprs.errors.insert(*id, e.to_string());
-                        }
-                    }
-                }
-
-                _ => continue,
-            }
-        }
-
-        self.module.finalize_definitions().unwrap();
-
-        // Only then we can retrive the functions
-        for (id, expr) in &exprs.exprs {
-            if compiled_exprs.errors.contains_key(id) {
-                continue;
-            }
-            match &expr.expr {
-                Expr::Implicit { op, lhs, rhs } => {
-                    let lhs_name = format!("implicit_{}_lhs", id.0);
-                    let lhs_result = self
-                        .get_implicit_fn(
-                            &lhs_name,
-                            &lhs.return_type(
-                                &exprs,
-                                &[ValueType::Number(()), ValueType::Number(())],
-                            )
-                            .expect("type should have been checked before"),
-                        )
-                        .ok_or_else(|| anyhow!("fn {} does not exist", lhs_name));
-
-                    let rhs_name = format!("implicit_{}_rhs", id.0);
-                    let rhs_result = self
-                        .get_implicit_fn(
-                            &rhs_name,
-                            &rhs.return_type(&exprs, &[ValueType::Number(())])
-                                .expect("type should have been checked before"),
-                        )
-                        .ok_or_else(|| anyhow!("fn {} does not exist", rhs_name));
-
-                    let result = match (lhs_result, rhs_result) {
-                        (Ok(lhs), Ok(rhs)) => Ok(CompiledExpr::Implicit { lhs, op: *op, rhs }),
-                        (Err(e), _) => Err(e),
-                        (_, Err(e)) => Err(e),
-                    };
-
-                    compiled_exprs.insert(*id, result);
-                }
-                Expr::Explicit { lhs } => {
-                    let name = format!("explicit_{}", id.0);
-
-                    let value = if expr.used_idents.contains("x") {
-                        self.get_explicit_fn(
-                            &name,
-                            &lhs.return_type(&exprs, &[ValueType::Number(())])
-                                .expect("type should have been checked before"),
-                        )
-                        .ok_or_else(|| anyhow!("fn {} does not exist", name))
-                        .map(|lhs| CompiledExpr::Explicit { lhs })
-                    } else {
-                        let return_type = &lhs
-                            .return_type(&exprs, &[])
-                            .expect("type should have been checked before");
-
-                        self.eval(&name, return_type)
-                            .ok_or_else(|| anyhow!("Could not find function {name}"))
-                            .map(|value| CompiledExpr::Constant { value })
-                    };
-
-                    compiled_exprs.insert(*id, value);
-                }
-                Expr::VarDef { ident, rhs } => {
-                    if !expr.used_idents.is_empty() {
-                        continue;
-                    }
-
-                    let name = ident.to_string();
-
-                    let return_type = &rhs
-                        .return_type(&exprs, &[])
-                        .expect("type should have been checked before");
-
-                    let value = self.eval(&name, return_type);
-
-                    compiled_exprs.insert(
-                        *id,
-                        value
-                            .ok_or_else(|| anyhow!("Could not find function {name}"))
-                            .map(|value| CompiledExpr::Constant { value }),
-                    );
-                }
-                _ => {}
+        for (key, segment) in ir_module.iter_segments() {
+            let name = key.to_string();
+            let func_id = if let FuncOrDataId::Func(id) = self
+                .module
+                .get_name(&name)
+                .expect("Function should have been generated")
+            {
+                id
+            } else {
+                panic!("Entry should not be data")
             };
-        }
 
-        compiled_exprs
-    }
+            ctx.func.signature =
+                self.make_sig(key, segment.ret().expect("segment cannot be empty").ty());
 
-    pub fn get_builder<'a>(
-        &mut self,
-        name: &str,
-        types: &[ValueType],
-        return_type: &ValueType,
-        func: &'a mut Function,
-        ctx: &'a mut FunctionBuilderContext,
-    ) -> (CraneliftBuilder<'a, '_>, FuncId) {
-        func.signature = Signature::new(CallConv::SystemV);
+            let builder = CraneliftBuilder::new(
+                self,
+                ir_module,
+                FunctionBuilder::new(&mut ctx.func, &mut builder_ctx),
+                &key.args,
+            );
 
-        for ty in types {
-            match ty {
-                GenericValue::Number(_) => {
-                    func.signature.params.push(AbiParam::new(types::F64));
+            if let Err(e) = builder.build_fn(segment) {
+                eprintln!("{e:?}");
+                errors.insert(key.clone(), e.to_string());
+            } else {
+                println!("{}", &ctx.func.display());
+                if let Err(e) = self.module.define_function(func_id, &mut ctx) {
+                    errors.insert(key.clone(), e.to_string());
                 }
-                GenericValue::Point(_) => {
-                    func.signature.params.push(AbiParam::new(types::F64));
-                    func.signature.params.push(AbiParam::new(types::F64));
-                }
-                GenericValue::List(GenericList::Number(_)) => {
-                    func.signature.params.push(AbiParam::new(types::I64));
-                    func.signature.params.push(AbiParam::new(types::I64));
-                }
-                GenericValue::List(GenericList::PointList(_)) => {
-                    func.signature.params.push(AbiParam::new(types::I64));
-                    func.signature.params.push(AbiParam::new(types::I64));
-                }
-            };
-        }
-
-        match return_type {
-            GenericValue::Number(_) => {
-                func.signature.returns.push(AbiParam::new(types::F64));
-            }
-            GenericValue::Point(_) => {
-                func.signature.returns.push(AbiParam::new(types::F64));
-                func.signature.returns.push(AbiParam::new(types::F64));
-            }
-            GenericValue::List(GenericList::Number(_)) => {
-                func.signature.returns.push(AbiParam::new(types::I64));
-                func.signature.returns.push(AbiParam::new(types::I64));
-            }
-            GenericValue::List(GenericList::PointList(_)) => {
-                func.signature.returns.push(AbiParam::new(types::I64));
-                func.signature.returns.push(AbiParam::new(types::I64));
+                self.module.clear_context(&mut ctx);
             }
         }
-        let func_id = self
-            .module
-            .declare_function(name, Linkage::Export, &func.signature)
-            .expect("failed to declare function, this indicates a bug");
 
-        (
-            CraneliftBuilder::new(self, FunctionBuilder::new(func, ctx), &types),
-            func_id,
-        )
+        self.module
+            .finalize_definitions()
+            .expect("failed to finilize module");
+
+        errors
     }
 }

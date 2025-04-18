@@ -197,10 +197,9 @@ mod tests {
                                 (GenericList::Number(lhs_fn), GenericList::Number(rhs_fn)) => {
                                     compare_lists::<f64>(&lhs_fn, &rhs_fn, input)?
                                 }
-                                (
-                                    GenericList::PointList(lhs_fn),
-                                    GenericList::PointList(rhs_fn),
-                                ) => compare_lists::<PointValue>(&lhs_fn, &rhs_fn, input)?,
+                                (GenericList::Point(lhs_fn), GenericList::Point(rhs_fn)) => {
+                                    compare_lists::<PointValue>(&lhs_fn, &rhs_fn, input)?
+                                }
                                 _ => panic!("Incompatible function types"),
                             };
                         }
@@ -209,7 +208,7 @@ mod tests {
                                 GenericList::Number(rhs_list) => {
                                     compare_number_with_list(lhs, &rhs_list, input)
                                 }
-                                GenericList::PointList(_) => {
+                                GenericList::Point(_) => {
                                     panic!("Cant compare number with point list")
                                 }
                             };
@@ -219,7 +218,7 @@ mod tests {
                                 GenericList::Number(lhs_list) => {
                                     compare_number_with_list(rhs, &lhs_list, input)
                                 }
-                                GenericList::PointList(_) => {
+                                GenericList::Point(_) => {
                                     panic!("Cant compare number with point list")
                                 }
                             };

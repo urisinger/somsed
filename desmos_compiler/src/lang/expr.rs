@@ -1,14 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use pest::Parser;
 
-use crate::expressions::Expressions;
-
-use super::{
-    generic_value::{ListType, ScalerType, ValueType},
-    parser::{parse_expr, ExprParser, Rule},
-};
+use super::parser::{parse_expr, ExprParser, Rule};
 
 #[derive(Debug)]
 pub struct ResolvedExpr {
@@ -66,11 +61,14 @@ pub enum Node {
         val: Box<Node>,
         op: UnaryOp,
     },
+    Extract {
+        val: Box<Node>,
+        index: usize,
+    },
     FnCall {
         ident: String,
         args: Vec<Node>,
     },
-
     FnArg {
         index: usize,
     },
@@ -151,6 +149,9 @@ impl Node {
                 x.replace_scope(scope);
                 y.replace_scope(scope);
             }
+            Node::Extract { val, .. } => {
+                val.replace_scope(scope);
+            }
 
             Node::BinOp { lhs, rhs, .. } => {
                 lhs.replace_scope(scope);
@@ -175,6 +176,9 @@ impl Node {
                 x.used_idents(idents);
                 y.used_idents(idents);
             }
+            Node::Extract { val, .. } => {
+                val.used_idents(idents);
+            }
 
             Node::BinOp { lhs, rhs, .. } => {
                 lhs.used_idents(idents);
@@ -184,120 +188,6 @@ impl Node {
             Node::FnCall { args, .. } => args.iter().for_each(|node| node.used_idents(idents)),
         }
     }
-
-    pub fn return_type(&self, exprs: &Expressions, call_types: &[ValueType]) -> Result<ValueType> {
-        Ok(match self {
-            Node::Lit(Literal::Float(_)) => ValueType::Number(()),
-            Node::Lit(Literal::List(elements)) => ValueType::List(
-                match elements.iter().try_fold(None, |acc, expr| {
-                    expr.return_type(exprs, call_types)
-                        .map(|current| match acc {
-                            None => Some(current),
-                            Some(a) if a == current => Some(current),
-                            _ => None,
-                        })
-                })? {
-                    Some(ValueType::Number(_)) => ListType::Number(()),
-                    Some(ValueType::Point(_)) => ListType::PointList(()),
-                    Some(ValueType::List(_)) => bail!("Lists in lists are not allowed"),
-                    None => ListType::Number(()),
-                },
-            ),
-            Node::Lit(Literal::Point(..)) => ValueType::Point(()),
-            Node::Ident(ident) => {
-                match exprs
-                    .get_expr(ident)
-                    .context(format!("failed to get expr for ident, {}", ident))?
-                {
-                    Expr::VarDef { rhs, .. } => rhs.return_type(exprs, call_types)?,
-                    expr => bail!("expr has wrong type, this should not happen: {expr:?}"),
-                }
-            }
-            Node::BinOp { op, lhs, rhs } => {
-                let lhs_type = lhs.return_type(exprs, call_types)?;
-                let rhs_type = rhs.return_type(exprs, call_types)?;
-                binop_return_type(lhs_type, *op, rhs_type)?
-            }
-            Node::UnaryOp { val, op } => match val.return_type(exprs, call_types)? {
-                ValueType::Number(_) => match op {
-                    UnaryOp::Neg | UnaryOp::Sqrt | UnaryOp::Sin | UnaryOp::Cos | UnaryOp::Tan => {
-                        ValueType::Number(())
-                    }
-                    _ => bail!("Unary operation `{op:?}` is not implemented for number"),
-                },
-                ValueType::Point(_) => match op {
-                    UnaryOp::Neg => ValueType::Point(()),
-                    UnaryOp::GetX => ValueType::Number(()),
-                    UnaryOp::GetY => ValueType::Number(()),
-                    _ => bail!("Unary op {:?} cant be applied to point", op),
-                },
-                ValueType::List(_) => bail!("Unary op {:?} cant be applied to list", op),
-            },
-            Node::FnCall { ident, args } => match exprs.get_expr(ident) {
-                Some(Expr::FnDef { rhs, .. }) => {
-                    let call_types = args
-                        .iter()
-                        .map(|arg| arg.return_type(exprs, call_types))
-                        .collect::<Result<Vec<_>>>()?;
-                    rhs.return_type(exprs, &call_types)?
-                }
-                Some(Expr::VarDef { rhs, .. }) => rhs.return_type(exprs, call_types)?,
-                None => bail!("unknown ident {ident}"),
-                _ => bail!("expr has the wrong type"),
-            },
-            Node::FnArg { index } => call_types[*index].clone(),
-        })
-    }
-}
-
-fn binop_return_type(lhs: ValueType, op: BinaryOp, rhs: ValueType) -> Result<ValueType> {
-    match (lhs, rhs) {
-        (
-            lhs @ (ValueType::Number(_) | ValueType::Point(_)),
-            rhs @ (ValueType::Number(_) | ValueType::Point(_)),
-        ) => {
-            let lhs_scaler = lhs.lift_scaler().expect("expected scaler");
-            let rhs_scaler = rhs.lift_scaler().expect("expected scaler");
-            Ok(
-                match simple_binop_return_type(lhs_scaler, op, rhs_scaler)? {
-                    ScalerType::Number(_) => ValueType::Number(()),
-                    ScalerType::PointList(_) => ValueType::Point(()),
-                },
-            )
-        }
-        (ValueType::List(lhs), rhs @ (ValueType::Number(_) | ValueType::Point(_))) => {
-            let rhs_scaler = rhs.lift_scaler().expect("expected scaler");
-            let list_type = simple_binop_return_type(lhs, op, rhs_scaler)?;
-            Ok(ValueType::List(list_type))
-        }
-
-        (lhs @ (ValueType::Number(_) | ValueType::Point(_)), ValueType::List(rhs)) => {
-            let lhs_scaler = lhs.lift_scaler().expect("expected scaler");
-            let list_type = simple_binop_return_type(lhs_scaler, op, rhs)?;
-            Ok(ValueType::List(list_type))
-        }
-        (ValueType::List(_), ValueType::List(_)) => {
-            bail!("Binary operations on lists not implemented yet")
-        }
-    }
-}
-
-fn simple_binop_return_type(lhs: ScalerType, op: BinaryOp, rhs: ScalerType) -> Result<ScalerType> {
-    Ok(match (lhs, rhs) {
-        (ScalerType::Number(_), ScalerType::Number(_)) => ScalerType::Number(()),
-        (ScalerType::Number(_), ScalerType::PointList(_)) => match op {
-            BinaryOp::Dot | BinaryOp::Paran => ScalerType::PointList(()),
-            _ => bail!("Type error: Cant {op:?} number and point"),
-        },
-        (ScalerType::PointList(_), ScalerType::Number(_)) => match op {
-            BinaryOp::Dot | BinaryOp::Paran | BinaryOp::Div => ScalerType::PointList(()),
-            _ => bail!("Type error: Cant {op:?} point and Number"),
-        },
-        (ScalerType::PointList(_), ScalerType::PointList(_)) => match op {
-            BinaryOp::Add | BinaryOp::Sub => ScalerType::PointList(()),
-            _ => bail!("Type error:Cant {op:?} point and point"),
-        },
-    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -329,8 +219,6 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnaryOp {
     Neg,
-    GetX,
-    GetY,
     Sqrt,
     Sin,
     Cos,

@@ -49,7 +49,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
     pub fn codegen_free(&mut self, list: GenericList<[Value; 2], [Value; 2]>) -> Result<()> {
         match list {
             GenericList::Number(struct_value) => self.codegen_free_list(&struct_value, 8),
-            GenericList::PointList(struct_value) => self.codegen_free_list(&struct_value, 16),
+            GenericList::Point(struct_value) => self.codegen_free_list(&struct_value, 16),
         }
     }
 
@@ -73,7 +73,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
 
         let (input_struct, element_size) = match list {
             GenericList::Number(s) => (s, 8),
-            GenericList::PointList(s) => (s, 16),
+            GenericList::Point(s) => (s, 16),
         };
 
         let [size, input_ptr] = *input_struct; // Now extract as into_pointer_value
@@ -82,7 +82,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
             types::I64,
             match output_ty {
                 GenericList::Number(_) => 8,
-                GenericList::PointList(_) => 16,
+                GenericList::Point(_) => 16,
             },
         );
 
@@ -133,7 +133,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
                     .load(types::F64, MemFlags::new(), element_ptr, 0);
                 GenericList::Number([value])
             }
-            GenericList::PointList(_) => {
+            GenericList::Point(_) => {
                 let x = self
                     .builder
                     .ins()
@@ -142,7 +142,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
                     .builder
                     .ins()
                     .load(types::F64, MemFlags::new(), element_ptr, 8);
-                GenericList::PointList([x, y])
+                GenericList::Point([x, y])
             }
         };
 
@@ -151,7 +151,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
 
         let transformed_values: &[Value] = match &transformed {
             GenericList::Number(x) => x,
-            GenericList::PointList(x) => x,
+            GenericList::Point(x) => x,
         };
 
         // compute output offset: output_ptr + offset
@@ -181,7 +181,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
 
         let output = match list {
             GenericList::Number(_) => GenericList::Number(output_struct),
-            GenericList::PointList(_) => GenericList::PointList(output_struct),
+            GenericList::Point(_) => GenericList::Point(output_struct),
         };
 
         Ok(output)
