@@ -1,13 +1,22 @@
 # Somsed
 
-A **high-performance compiler and client** for Desmos(written in rust 🔥👑🦀), designed to speed up graph rendering and computation by jit compiling expressions to native code using inkwell.
+A **high-performance compiler and client** for Desmos(written in rust 🔥👑🦀).
 
-# Plans 
-Gpu execution engine for graph rendering
-(maybe) AST level optimization
+# Planned features
+- [x] basic statments, function calls and variables
+- [x] native compilation
+- [x] list types
+- [ ] wack scopes 
+- [ ] not leaking memory with list types
+- [ ] more advanced functions and operators
+- [ ] conditionals
+- [ ] for statments
+- [ ] gpu compilation
+- [ ] control flow optimization
 ## Usage  
 
 1. Start the client:  
    ```bash
    cargo run
    ```
+the client looks and functions quite simular to desmos, but expressions are parsed in their raw latex form.
