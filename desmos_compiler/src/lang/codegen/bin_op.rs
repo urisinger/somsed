@@ -13,6 +13,7 @@ use super::{
 impl IRGen<'_> {
     pub(crate) fn codegen_binary_op(
         segment: &mut IRSegment,
+        _: &[IRType],
         current_block: BlockID,
         lhs: InstID,
         op: BinaryOp,

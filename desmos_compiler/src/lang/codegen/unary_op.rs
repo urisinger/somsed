@@ -11,6 +11,7 @@ use super::{
 impl IRGen<'_> {
     pub(crate) fn codegen_unary_op(
         segment: &mut IRSegment,
+        _: &[IRType],
         current_block: BlockID,
         lhs: InstID,
         op: UnaryOp,

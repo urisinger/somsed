@@ -1,5 +1,5 @@
 use crate::{ExpressionId, Expressions, Somsed};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use desmos_compiler::lang::codegen::backend::cranelift::CraneliftBackend;
 use desmos_compiler::lang::codegen::backend::jit::{ExplicitFn, ExplicitJitFn, JitValue};
 use desmos_compiler::lang::codegen::backend::ExecutionEngine;
@@ -63,7 +63,6 @@ pub fn points_server() -> RecvStream<'static, Event> {
         let mut range = Somsed::DEFAULT_RANGE;
 
         let mut backend = None;
-        let mut segment_errors = HashMap::new();
         let mut errors = HashMap::new();
 
         loop {
@@ -97,7 +96,11 @@ pub fn points_server() -> RecvStream<'static, Event> {
                         (ir, errors) = IRGen::generate_ir(&expressions);
                         backend = Some(CraneliftBackend::new().unwrap());
 
-                        segment_errors = backend.as_mut().unwrap().compile_module(&ir);
+                        backend
+                            .as_mut()
+                            .unwrap()
+                            .compile_module(&ir)
+                            .expect("compilation error, restarting server");
 
                         for &id in expressions.exprs.keys() {
                             if !errors.contains_key(&id) {
@@ -155,21 +158,11 @@ pub fn points_server() -> RecvStream<'static, Event> {
                             Err(anyhow!("Cant Graph explicit graph of points"))
                         }
                         Some(_) => Err(anyhow!("Cant Graph explicit graph of list")),
-                        None => Err(anyhow!(
-                            "{:?}",
-                            segment_errors.get(&SegmentKey::new(
-                                format!("explicit_{}", id.0),
-                                vec![IRType::NUMBER, IRType::NUMBER]
-                            ))
-                        )),
+                        None => Err(anyhow!("Explicit fn not found")),
                     },
 
                     ResolvedExpr {
                         expr: Expr::Explicit { lhs: node },
-                        ..
-                    }
-                    | ResolvedExpr {
-                        expr: Expr::VarDef { rhs: node, .. },
                         ..
                     } => Ok(ComputationResult::Constant(
                         backend
@@ -177,7 +170,15 @@ pub fn points_server() -> RecvStream<'static, Event> {
                                 &format!("explicit_{}()", id.0),
                                 &node.ty(&expressions, &[])?,
                             )
-                            .expect("type does not match function"),
+                            .with_context(|| anyhow!("Const fn not found"))?,
+                    )),
+                    ResolvedExpr {
+                        expr: Expr::VarDef { rhs: node, ident },
+                        ..
+                    } => Ok(ComputationResult::Constant(
+                        backend
+                            .eval(&format!("{}()", ident), &node.ty(&expressions, &[])?)
+                            .with_context(|| anyhow!("Const fn not found"))?,
                     )),
                     _ => Err(anyhow!("Only explicit expressions are supported")),
                 })();

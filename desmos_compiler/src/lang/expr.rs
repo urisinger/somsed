@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use pest::Parser;
+
+use crate::expressions::Expressions;
 
 use super::parser::{parse_expr, ExprParser, Rule};
 
@@ -187,6 +189,66 @@ impl Node {
             Node::UnaryOp { val, .. } => val.used_idents(idents),
             Node::FnCall { args, .. } => args.iter().for_each(|node| node.used_idents(idents)),
         }
+    }
+
+    pub fn used_functions(&self, env: &Expressions) -> Result<HashSet<String>> {
+        let mut fns = HashSet::new();
+        self.collect_functions(env, &mut fns)?;
+        Ok(fns)
+    }
+
+    fn collect_functions(&self, env: &Expressions, fns: &mut HashSet<String>) -> Result<()> {
+        match self {
+            Node::FnCall { ident, args } => {
+                match env.get_expr(ident.as_str()) {
+                    Some(Expr::FnDef { .. }) => {
+                        fns.insert(ident.clone());
+                    }
+                    Some(Expr::VarDef { .. }) => {
+                        if args.len() != 1 {
+                            bail!(
+                                "{ident} is a variable and cannot be called with {} arguments",
+                                args.len()
+                            );
+                        }
+                        // Treated as binary operation — do not insert as a function
+                    }
+                    Some(_) => {
+                        bail!("{ident} is not a function or variable");
+                    }
+                    None => {
+                        bail!("Unknown identifier: {ident}");
+                    }
+                }
+
+                for arg in args {
+                    arg.collect_functions(env, fns)?;
+                }
+            }
+
+            Node::UnaryOp { val, .. } => val.collect_functions(env, fns)?,
+            Node::BinOp { lhs, rhs, .. } => {
+                lhs.collect_functions(env, fns)?;
+                rhs.collect_functions(env, fns)?;
+            }
+            Node::Extract { val, .. } => val.collect_functions(env, fns)?,
+
+            Node::Lit(Literal::List(nodes)) => {
+                for n in nodes {
+                    n.collect_functions(env, fns)?;
+                }
+            }
+
+            Node::Lit(Literal::Point(x, y)) => {
+                x.collect_functions(env, fns)?;
+                y.collect_functions(env, fns)?;
+            }
+
+            Node::Ident(_) | Node::FnArg { .. } | Node::Lit(Literal::Float(_)) => {} // This ensures exhaustiveness even if new variants are added
+                                                                                     //_ => bail!("Unhandled node variant in function analysis"),
+        }
+
+        Ok(())
     }
 }
 

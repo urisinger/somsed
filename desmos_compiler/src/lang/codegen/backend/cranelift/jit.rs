@@ -66,7 +66,6 @@ impl ExecutionEngine for CraneliftBackend {
     }
 
     fn get_explicit_fn(&self, name: &str, ty: &IRType) -> Option<ExplicitJitFn<Self>> {
-        println!("{}, {:?}", name, self.module.declarations());
         let func_id = if let FuncOrDataId::Func(id) = self.module.get_name(name)? {
             id
         } else {

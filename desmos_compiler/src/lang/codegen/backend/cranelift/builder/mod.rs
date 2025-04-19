@@ -86,49 +86,6 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
         }
     }
 
-    fn build_return(mut self, value: CraneliftValue) {
-        self.builder.ins().return_(value.as_struct());
-    }
-
-    fn get_arg(&mut self, index: usize) -> Option<&CraneliftValue> {
-        self.args.get(index)
-    }
-
-    fn call_fn(&mut self, name: &str, values: &[CraneliftValue]) -> Option<CraneliftValue> {
-        let args: Vec<_> = values
-            .iter()
-            .flat_map(|arg| arg.as_struct())
-            .cloned()
-            .collect();
-
-        let types: Vec<_> = values.iter().map(|v| v.ty()).collect();
-
-        let ret = self
-            .ir_module
-            .get_segment(&SegmentKey {
-                args: types,
-                name: name.to_string(),
-            })
-            .and_then(|segment| segment.ret())?
-            .ty();
-
-        let func_id = if let FuncOrDataId::Func(func) = self.backend.module.get_name(name)? {
-            func
-        } else {
-            return None;
-        };
-
-        let func_ref = self
-            .backend
-            .module
-            .declare_func_in_func(func_id, self.builder.func);
-
-        let ins = self.builder.ins().call(func_ref, &args);
-        let values = self.builder.inst_results(ins);
-
-        CraneliftValue::from_values(values, ret)
-    }
-
     pub fn build_fn(mut self, segment: &IRSegment) -> anyhow::Result<()> {
         let entry = segment
             .entry_block()
@@ -237,6 +194,8 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
             .ins()
             .return_(get_value(&values, segment.ret().expect("expected return value")).as_struct());
 
+        self.builder.finalize();
+
         Ok(())
     }
 
@@ -270,14 +229,6 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
         let inst = self.builder.ins().call(func, &[lhs, rhs]);
 
         self.builder.inst_results(inst)[0]
-    }
-
-    fn neg(&mut self, lhs: Value) -> Value {
-        self.builder.ins().fneg(lhs)
-    }
-
-    fn sqrt(&mut self, lhs: Value) -> Value {
-        self.builder.ins().sqrt(lhs)
     }
 
     fn sin(&mut self, lhs: Value) -> Value {

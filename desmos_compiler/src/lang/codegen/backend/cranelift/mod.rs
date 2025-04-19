@@ -70,7 +70,7 @@ impl CraneliftBackend {
         signature
     }
 
-    pub fn compile_module(&mut self, ir_module: &IRModule) -> HashMap<SegmentKey, String> {
+    pub fn compile_module(&mut self, ir_module: &IRModule) -> Result<()> {
         // we must do everything in 2 passes
         for (key, segment) in ir_module.iter_segments() {
             let signature =
@@ -84,8 +84,6 @@ impl CraneliftBackend {
 
         let mut ctx = codegen::Context::new();
         let mut builder_ctx = FunctionBuilderContext::new();
-
-        let mut errors = HashMap::new();
 
         for (key, segment) in ir_module.iter_segments() {
             let name = key.to_string();
@@ -109,22 +107,16 @@ impl CraneliftBackend {
                 &key.args,
             );
 
-            if let Err(e) = builder.build_fn(segment) {
-                eprintln!("{e:?}");
-                errors.insert(key.clone(), e.to_string());
-            } else {
-                println!("{}", &ctx.func.display());
-                if let Err(e) = self.module.define_function(func_id, &mut ctx) {
-                    errors.insert(key.clone(), e.to_string());
-                }
-                self.module.clear_context(&mut ctx);
-            }
+            builder.build_fn(segment)?;
+            println!("{}", &ctx.func.display());
+            self.module.define_function(func_id, &mut ctx)?;
+            self.module.clear_context(&mut ctx);
         }
 
         self.module
             .finalize_definitions()
             .expect("failed to finilize module");
 
-        errors
+        Ok(())
     }
 }

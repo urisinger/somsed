@@ -246,6 +246,7 @@ impl SegmentKey {
     }
 }
 
+#[derive(Debug)]
 pub struct IRModule {
     segments: HashMap<SegmentKey, IRSegment>,
 }

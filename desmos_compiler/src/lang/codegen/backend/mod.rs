@@ -1,12 +1,9 @@
-pub mod compiled_exprs;
 pub mod jit;
 
 #[cfg(feature = "cranelift")]
 pub mod cranelift;
 
 use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
-
-use crate::lang::generic_value::ValueType;
 
 use super::ir::IRType;
 
