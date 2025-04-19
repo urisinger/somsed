@@ -11,8 +11,9 @@ A **high-performance compiler and client** for Desmos(written in rust 🔥👑�
 - [ ] more advanced functions and operators
 - [ ] conditionals
 - [ ] for statments
-- [ ] gpu compilation
 - [ ] control flow optimization
+- [ ] close to full desmos compatibilty
+- [ ] gpu compilation
 ## Usage  
 
 1. Start the client:  
