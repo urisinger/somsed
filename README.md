@@ -20,3 +20,5 @@ A **high-performance compiler and client** for Desmos(written in rust 🔥👑�
    cargo run
    ```
 the client looks and functions quite simular to desmos, but expressions are parsed in their raw latex form.
+
+![image](https://github.com/user-attachments/assets/954b621d-deef-4d29-97ef-2b5ce4a380bb)
