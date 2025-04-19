@@ -18,13 +18,6 @@ pub struct IRGen<'a> {
     exprs: &'a Expressions,
 }
 
-#[derive(Debug)]
-struct PendingFn<'a> {
-    expr_id: ExpressionId,
-    node: &'a Node,
-    key: SegmentKey,
-}
-
 impl<'a> IRGen<'a> {
     pub fn new(exprs: &'a Expressions) -> Self {
         Self { exprs }
@@ -107,7 +100,7 @@ impl<'a> IRGen<'a> {
                 let lhs = self.codegen_node(segment, arg_types, current_block, lhs)?;
                 let rhs = self.codegen_node(segment, arg_types, current_block, rhs)?;
 
-                Self::codegen_binary_op(segment, arg_types, current_block, lhs, *op, rhs)?
+                Self::codegen_binary_op(segment, current_block, lhs, *op, rhs)?
             }
             Node::UnaryOp { val, op } => {
                 let lhs = self.codegen_node(segment, arg_types, current_block, val)?;
@@ -137,14 +130,7 @@ impl<'a> IRGen<'a> {
                     if args.len() == 1 {
                         let lhs = self.get_var(segment, arg_types, current_block, ident)?;
                         let rhs = self.codegen_node(segment, arg_types, current_block, &args[0])?;
-                        Self::codegen_binary_op(
-                            segment,
-                            arg_types,
-                            current_block,
-                            lhs,
-                            BinaryOp::Paran,
-                            rhs,
-                        )?
+                        Self::codegen_binary_op(segment, current_block, lhs, BinaryOp::Paran, rhs)?
                     } else {
                         bail!("{ident} is not a function")
                     }
@@ -188,11 +174,47 @@ impl<'a> IRGen<'a> {
         Ok(segment)
     }
 
+    fn enqueue_with_dependencies<'b>(
+        expressions: &'b Expressions,
+        errors: &mut HashMap<ExpressionId, String>,
+        pending: &mut HashMap<SegmentKey, (ExpressionId, &'b Node)>,
+        expr_id: ExpressionId,
+        node: &'b Node,
+        key: SegmentKey,
+        args: &[IRType],
+    ) {
+        if pending.contains_key(&key) {
+            return;
+        }
+
+        pending.insert(key.clone(), (expr_id, node));
+
+        match node.used_functions(expressions, args) {
+            Ok(used_fns) => {
+                for (fn_name, fn_args) in used_fns {
+                    if let Some(Expr::FnDef { rhs: fn_body, .. }) = expressions.get_expr(&fn_name) {
+                        let fn_key = SegmentKey::new(fn_name.clone(), fn_args.clone());
+                        Self::enqueue_with_dependencies(
+                            expressions,
+                            errors,
+                            pending,
+                            expr_id,
+                            fn_body,
+                            fn_key,
+                            &fn_args,
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                errors.insert(expr_id, e.to_string());
+            }
+        }
+    }
+
     pub fn generate_ir(expressions: &Expressions) -> (IRModule, HashMap<ExpressionId, String>) {
         let mut errors = HashMap::new();
-
-        let mut pending = Vec::new();
-        let mut seen = HashSet::new();
+        let mut pending = HashMap::<SegmentKey, (ExpressionId, &Node)>::new();
 
         for (id, expr) in &expressions.exprs {
             match &expr.expr {
@@ -202,39 +224,15 @@ impl<'a> IRGen<'a> {
                     for (side, node) in [("lhs", lhs), ("rhs", rhs)] {
                         let key =
                             SegmentKey::new(format!("implicit_{}_{}", id.0, side), args.clone());
-                        if seen.insert(key.clone()) {
-                            pending.push(PendingFn {
-                                expr_id: *id,
-                                node,
-                                key,
-                            });
-                        }
-
-                        match node.used_functions(expressions) {
-                            Ok(used_fns) => {
-                                for fn_name in used_fns {
-                                    if let Some(Expr::FnDef {
-                                        rhs: fn_body,
-                                        args: fn_args,
-                                        ..
-                                    }) = expressions.get_expr(&fn_name)
-                                    {
-                                        let arg_types = vec![IRType::NUMBER; fn_args.len()];
-                                        let fn_key = SegmentKey::new(fn_name.clone(), arg_types);
-                                        if seen.insert(fn_key.clone()) {
-                                            pending.push(PendingFn {
-                                                expr_id: *id,
-                                                node: fn_body,
-                                                key: fn_key,
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                errors.insert(*id, e.to_string());
-                            }
-                        }
+                        Self::enqueue_with_dependencies(
+                            expressions,
+                            &mut errors,
+                            &mut pending,
+                            *id,
+                            node,
+                            key,
+                            &args,
+                        );
                     }
                 }
 
@@ -245,76 +243,29 @@ impl<'a> IRGen<'a> {
                         vec![]
                     };
                     let key = SegmentKey::new(format!("explicit_{}", id.0), args.clone());
-                    if seen.insert(key.clone()) {
-                        pending.push(PendingFn {
-                            expr_id: *id,
-                            node: lhs,
-                            key,
-                        });
-                    }
-
-                    match lhs.used_functions(expressions) {
-                        Ok(used_fns) => {
-                            for fn_name in used_fns {
-                                if let Some(Expr::FnDef {
-                                    rhs: fn_body,
-                                    args: fn_args,
-                                    ..
-                                }) = expressions.get_expr(&fn_name)
-                                {
-                                    let arg_types = vec![IRType::NUMBER; fn_args.len()];
-                                    let fn_key = SegmentKey::new(fn_name.clone(), arg_types);
-                                    if seen.insert(fn_key.clone()) {
-                                        pending.push(PendingFn {
-                                            expr_id: *id,
-                                            node: fn_body,
-                                            key: fn_key,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            errors.insert(*id, e.to_string());
-                        }
-                    }
+                    Self::enqueue_with_dependencies(
+                        expressions,
+                        &mut errors,
+                        &mut pending,
+                        *id,
+                        lhs,
+                        key,
+                        &args,
+                    );
                 }
 
                 Expr::VarDef { rhs, ident } if expr.used_idents.is_empty() => {
-                    let key = SegmentKey::new(ident.to_string(), vec![]);
-                    if seen.insert(key.clone()) {
-                        pending.push(PendingFn {
-                            expr_id: *id,
-                            node: rhs,
-                            key,
-                        });
-                    }
-
-                    match rhs.used_functions(expressions) {
-                        Ok(used_fns) => {
-                            for fn_name in used_fns {
-                                if let Some(Expr::FnDef {
-                                    rhs: fn_body,
-                                    args: fn_args,
-                                    ..
-                                }) = expressions.get_expr(&fn_name)
-                                {
-                                    let arg_types = vec![IRType::NUMBER; fn_args.len()];
-                                    let fn_key = SegmentKey::new(fn_name.clone(), arg_types);
-                                    if seen.insert(fn_key.clone()) {
-                                        pending.push(PendingFn {
-                                            expr_id: *id,
-                                            node: fn_body,
-                                            key: fn_key,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            errors.insert(*id, e.to_string());
-                        }
-                    }
+                    let args = vec![];
+                    let key = SegmentKey::new(ident.to_string(), args.clone());
+                    Self::enqueue_with_dependencies(
+                        expressions,
+                        &mut errors,
+                        &mut pending,
+                        *id,
+                        rhs,
+                        key,
+                        &args,
+                    );
                 }
 
                 _ => continue,
@@ -324,7 +275,7 @@ impl<'a> IRGen<'a> {
         let mut module = IRModule::new();
         let mut codegen = IRGen::new(&expressions);
 
-        for PendingFn { expr_id, node, key } in pending {
+        for (key, (expr_id, node)) in pending {
             match codegen.compile_fn(node, &key.args) {
                 Ok(segment) => module.insert_segment(key, segment),
                 Err(e) => {

@@ -95,7 +95,7 @@ pub enum Instruction {
     Map {
         lists: Vec<InstID>,
         args: Vec<InstID>,
-        block_id: usize,
+        block_id: BlockID,
     },
 
     BinaryOp {
@@ -126,18 +126,22 @@ pub enum Instruction {
 #[derive(Debug)]
 pub struct IRBlock {
     instructions: Vec<Instruction>,
+    ret: IRType,
 }
 
 impl IRBlock {
     pub fn new() -> Self {
         Self {
             instructions: Vec::new(),
+            ret: IRType::NUMBER,
         }
     }
 
-    pub fn push(&mut self, instr: Instruction) -> usize {
+    pub fn push(&mut self, instr: Instruction, t: IRType) -> usize {
         let idx = self.instructions.len();
         self.instructions.push(instr);
+
+        self.ret = t;
         idx
     }
 
@@ -145,8 +149,16 @@ impl IRBlock {
         self.instructions.get(index)
     }
 
+    pub fn ret(&self) -> IRType {
+        self.ret
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (usize, &Instruction)> {
         self.instructions.iter().enumerate()
+    }
+
+    pub fn insts(&self) -> &[Instruction] {
+        &self.instructions
     }
 }
 
@@ -183,7 +195,7 @@ impl IRSegment {
     }
 
     pub fn push(&mut self, block: BlockID, instr: Instruction, t: IRType) -> InstID {
-        let inst = self.blocks[block.0].push(instr);
+        let inst = self.blocks[block.0].push(instr, t);
         let id = InstID::new(block, inst, t);
 
         if Some(block) == self.entry_block {

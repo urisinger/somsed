@@ -1,0 +1,13 @@
+[package]
+name = "cranelift-backend"
+
+version = {workspace = true}
+edition = {workspace = true}
+
+[dependencies]
+cranelift = { workspace = true}
+cranelift-jit = { workspace = true }
+cranelift-module = { workspace = true }
+
+desmos_compiler = {path = "../../desmos_compiler"}
+anyhow = "1"

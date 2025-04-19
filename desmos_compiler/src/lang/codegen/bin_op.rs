@@ -1,3 +1,5 @@
+use std::thread::current;
+
 use anyhow::{bail, Result};
 
 use crate::lang::{
@@ -13,7 +15,6 @@ use super::{
 impl IRGen<'_> {
     pub(crate) fn codegen_binary_op(
         segment: &mut IRSegment,
-        _: &[IRType],
         current_block: BlockID,
         lhs: InstID,
         op: BinaryOp,
@@ -59,7 +60,68 @@ impl IRGen<'_> {
         op: BinaryOp,
         rhs: InstID,
     ) -> Result<InstID> {
-        bail!("distributed ops not implemented yet")
+        use IRType::*;
+        let inner_block = segment.create_block();
+
+        Ok(match (lhs.ty(), rhs.ty()) {
+            (List(lhs_ty), Scaler(rhs_ty)) => {
+                let lhs_inst = segment.push(
+                    inner_block,
+                    Instruction::BlockArg { index: 0 },
+                    Scaler(lhs_ty),
+                );
+                let rhs_inst = segment.push(
+                    inner_block,
+                    Instruction::BlockArg { index: 1 },
+                    Scaler(rhs_ty),
+                );
+                let ty =
+                    Self::codegen_binary_op(segment, inner_block, lhs_inst, op, rhs_inst)?.ty();
+
+                let ty = match ty {
+                    Scaler(scaler) => List(scaler),
+                    List(_) => bail!("Block incorrectly returns a list, this indicates a bug"),
+                };
+                segment.push(
+                    current_block,
+                    Instruction::Map {
+                        lists: vec![lhs],
+                        args: vec![rhs],
+                        block_id: inner_block,
+                    },
+                    ty,
+                )
+            }
+            (Scaler(_), Scaler(_)) => todo!(),
+            (Scaler(lhs_ty), List(rhs_ty)) => {
+                let lhs_inst = segment.push(
+                    inner_block,
+                    Instruction::BlockArg { index: 1 },
+                    Scaler(lhs_ty),
+                );
+                let rhs_inst = segment.push(
+                    inner_block,
+                    Instruction::BlockArg { index: 0 },
+                    Scaler(rhs_ty),
+                );
+                let ty =
+                    Self::codegen_binary_op(segment, inner_block, lhs_inst, op, rhs_inst)?.ty();
+                let ty = match ty {
+                    Scaler(scaler) => List(scaler),
+                    List(_) => bail!("Block incorrectly returns a list, this indicates a bug"),
+                };
+                segment.push(
+                    current_block,
+                    Instruction::Map {
+                        lists: vec![rhs],
+                        args: vec![lhs],
+                        block_id: inner_block,
+                    },
+                    ty,
+                )
+            }
+            (List(_), List(_)) => todo!(),
+        })
     }
 
     fn codegen_binary_number_op(

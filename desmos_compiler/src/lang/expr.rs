@@ -5,7 +5,10 @@ use pest::Parser;
 
 use crate::expressions::Expressions;
 
-use super::parser::{parse_expr, ExprParser, Rule};
+use super::{
+    codegen::ir::IRType,
+    parser::{parse_expr, ExprParser, Rule},
+};
 
 #[derive(Debug)]
 pub struct ResolvedExpr {
@@ -191,18 +194,32 @@ impl Node {
         }
     }
 
-    pub fn used_functions(&self, env: &Expressions) -> Result<HashSet<String>> {
+    pub fn used_functions(
+        &self,
+        env: &Expressions,
+        param_types: &[IRType],
+    ) -> Result<HashSet<(String, Vec<IRType>)>> {
         let mut fns = HashSet::new();
-        self.collect_functions(env, &mut fns)?;
+        self.collect_functions(env, param_types, &mut fns)?;
         Ok(fns)
     }
 
-    fn collect_functions(&self, env: &Expressions, fns: &mut HashSet<String>) -> Result<()> {
+    fn collect_functions(
+        &self,
+        env: &Expressions,
+        param_types: &[IRType],
+        fns: &mut HashSet<(String, Vec<IRType>)>,
+    ) -> Result<()> {
         match self {
             Node::FnCall { ident, args } => {
                 match env.get_expr(ident.as_str()) {
                     Some(Expr::FnDef { .. }) => {
-                        fns.insert(ident.clone());
+                        fns.insert((
+                            ident.clone(),
+                            args.iter()
+                                .map(|arg| arg.ty(env, param_types))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        ));
                     }
                     Some(Expr::VarDef { .. }) => {
                         if args.len() != 1 {
@@ -211,7 +228,6 @@ impl Node {
                                 args.len()
                             );
                         }
-                        // Treated as binary operation — do not insert as a function
                     }
                     Some(_) => {
                         bail!("{ident} is not a function or variable");
@@ -222,26 +238,26 @@ impl Node {
                 }
 
                 for arg in args {
-                    arg.collect_functions(env, fns)?;
+                    arg.collect_functions(env, param_types, fns)?;
                 }
             }
 
-            Node::UnaryOp { val, .. } => val.collect_functions(env, fns)?,
+            Node::UnaryOp { val, .. } => val.collect_functions(env, param_types, fns)?,
             Node::BinOp { lhs, rhs, .. } => {
-                lhs.collect_functions(env, fns)?;
-                rhs.collect_functions(env, fns)?;
+                lhs.collect_functions(env, param_types, fns)?;
+                rhs.collect_functions(env, param_types, fns)?;
             }
-            Node::Extract { val, .. } => val.collect_functions(env, fns)?,
+            Node::Extract { val, .. } => val.collect_functions(env, param_types, fns)?,
 
             Node::Lit(Literal::List(nodes)) => {
                 for n in nodes {
-                    n.collect_functions(env, fns)?;
+                    n.collect_functions(env, param_types, fns)?;
                 }
             }
 
             Node::Lit(Literal::Point(x, y)) => {
-                x.collect_functions(env, fns)?;
-                y.collect_functions(env, fns)?;
+                x.collect_functions(env, param_types, fns)?;
+                y.collect_functions(env, param_types, fns)?;
             }
 
             Node::Ident(_) | Node::FnArg { .. } | Node::Lit(Literal::Float(_)) => {} // This ensures exhaustiveness even if new variants are added

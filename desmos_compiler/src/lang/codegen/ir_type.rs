@@ -54,25 +54,36 @@ impl Node {
 }
 
 fn ty_binary(lhs: IRType, op: BinaryOp, rhs: IRType) -> Result<IRType> {
-    use BinaryOp::*;
-    use IRScalerType::*;
     use IRType::*;
 
     match (lhs, op, rhs) {
-        /* ───────────────────  number  ⨯  number  ─────────────────── */
-        (Scaler(Number), Add | Sub | Dot | Paran | Div | Pow, Scaler(Number)) => Ok(Scaler(Number)),
+        (Scaler(lhs), op, Scaler(rhs)) => Ok(Scaler(ty_scaler_binary(lhs, op, rhs)?)),
 
-        /* ───────────────────  point   ⨯  point   ─────────────────── */
-        (Scaler(Point), Add | Sub, Scaler(Point)) => Ok(Scaler(Point)),
+        (List(lhs), op, Scaler(rhs)) => Ok(List(ty_scaler_binary(lhs, op, rhs)?)),
 
-        /* ────────────────  number ⨯ point / point ⨯ number  ──────────────── */
-        (Scaler(Number), Dot | Paran, Scaler(Point))
-        | (Scaler(Point), Dot | Paran, Scaler(Number)) => Ok(Scaler(Point)),
-
-        /* ─────────────────────  point  ÷  number  ───────────────────── */
-        (Scaler(Point), Div, Scaler(Number)) => Ok(Scaler(Point)),
+        (Scaler(lhs), op, List(rhs)) => Ok(List(ty_scaler_binary(lhs, op, rhs)?)),
 
         /* ── Everything else (lists, mixed scalars, unsupported op) ── */
+        _ => bail!("type error: {op:?} is not defined for {lhs:?} and {rhs:?}"),
+    }
+}
+
+fn ty_scaler_binary(lhs: IRScalerType, op: BinaryOp, rhs: IRScalerType) -> Result<IRScalerType> {
+    use BinaryOp::*;
+    use IRScalerType::*;
+    match (lhs, op, rhs) {
+        /* ───────────────────  number  ⨯  number  ─────────────────── */
+        (Number, Add | Sub | Dot | Paran | Div | Pow, Number) => Ok(Number),
+
+        /* ───────────────────  point   ⨯  point   ─────────────────── */
+        (Point, Add | Sub, Point) => Ok(Point),
+
+        /* ────────────────  number ⨯ point / point ⨯ number  ──────────────── */
+        (Number, Dot | Paran, Point) | (Point, Dot | Paran, Number) => Ok(Point),
+
+        /* ─────────────────────  point  ÷  number  ───────────────────── */
+        (Point, Div, Number) => Ok(Point),
+
         _ => bail!("type error: {op:?} is not defined for {lhs:?} and {rhs:?}"),
     }
 }
@@ -122,9 +133,11 @@ fn ty_call(
         bail!("{ident} is not a function")
     };
 
+    println!("{args:?}, {fn_params:?}");
+
     anyhow::ensure!(
         args.len() == fn_params.len(),
-        "arity mismatch calling {ident}"
+        "parity mismatch calling {ident}"
     );
 
     // compute argument types
