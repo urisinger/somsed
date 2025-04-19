@@ -4,6 +4,8 @@ use desmos_compiler::lang::codegen::backend::jit::{
     ExplicitFn, ExplicitJitFn, ImplicitFn, PointValue,
 };
 
+use crate::LLVMExecutionEngine;
+
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct ListLayout {
@@ -11,12 +13,7 @@ pub struct ListLayout {
     pub ptr: *mut u8,
 }
 
-pub type ExplicitLLVMJitFn<'ctx> = ExplicitJitFn<
-    ExplicitLLVMFn<'ctx, f64>,
-    ExplicitLLVMFn<'ctx, PointValue>,
-    ExplicitLLVMListFn<'ctx>,
-    ExplicitLLVMListFn<'ctx>,
->;
+pub type ExplicitLLVMJitFn<'ctx> = ExplicitJitFn<LLVMExecutionEngine<'ctx>>;
 
 pub struct ExplicitLLVMFn<'ctx, T> {
     pub function: JitFunction<'ctx, unsafe extern "C" fn(f64) -> T>,

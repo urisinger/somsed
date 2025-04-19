@@ -1,8 +1,5 @@
 pub mod jit;
 
-#[cfg(feature = "cranelift")]
-pub mod cranelift;
-
 use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
 
 use super::ir::IRType;

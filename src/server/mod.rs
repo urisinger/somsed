@@ -1,9 +1,9 @@
 use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Context, Result};
-use desmos_compiler::lang::codegen::backend::cranelift::CraneliftBackend;
+use cranelift_backend::CraneliftBackend;
 use desmos_compiler::lang::codegen::backend::jit::{ExplicitFn, ExplicitJitFn, JitValue};
 use desmos_compiler::lang::codegen::backend::ExecutionEngine;
-use desmos_compiler::lang::codegen::ir::{IRType, SegmentKey};
+use desmos_compiler::lang::codegen::ir::IRType;
 use desmos_compiler::lang::codegen::IRGen;
 use desmos_compiler::lang::expr::{Expr, ResolvedExpr};
 use flume::r#async::RecvStream;

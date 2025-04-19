@@ -321,8 +321,6 @@ impl<'a> IRGen<'a> {
             }
         }
 
-        dbg!(&pending);
-
         let mut module = IRModule::new();
         let mut codegen = IRGen::new(&expressions);
 

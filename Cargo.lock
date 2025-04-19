@@ -712,6 +712,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cranelift-backend"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cranelift",
+ "cranelift-jit",
+ "cranelift-module",
+ "desmos_compiler",
+]
+
+[[package]]
 name = "cranelift-bforest"
 version = "0.116.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2283,15 +2294,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ee93343901ab17bd981295f2cf0026d4ad018c7c31ba84549a4ddbb47a45104"
 
 [[package]]
-name = "llvm-backend"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "desmos_compiler",
- "inkwell",
-]
-
-[[package]]
 name = "llvm-sys"
 version = "180.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3861,10 +3863,10 @@ name = "somsed"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cranelift-backend",
  "desmos_compiler",
  "flume",
  "iced",
- "inkwell",
  "reqwest",
  "serde",
  "serde_json",

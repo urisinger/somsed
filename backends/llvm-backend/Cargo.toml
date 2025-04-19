@@ -6,4 +6,5 @@ edition = {workspace = true}
 
 [dependencies]
 inkwell = {workspace = true}
-desmos_compiler = {path = "../../desmos_compiler"}
+desmos_compiler = {path = "../../desmos_compiler", features = []}
+anyhow = "1"
