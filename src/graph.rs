@@ -109,7 +109,6 @@ impl Program<Message> for GraphRenderer<'_> {
                         );
                     }
                     JitValue::PointList(l) => {
-                        println!("{l:?}");
                         for PointValue { x, y } in l {
                             frame.fill(
                                 &Path::circle(

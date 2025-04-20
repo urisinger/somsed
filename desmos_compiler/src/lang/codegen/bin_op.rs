@@ -41,15 +41,9 @@ impl IRGen<'_> {
             }
 
             // Scalar-List or List-Scalar
-            (List(_), Scaler(_)) | (Scaler(_), List(_)) => {
+            (List(_), Scaler(_)) | (Scaler(_), List(_)) | (List(_), List(_)) => {
                 Self::codegen_distributed_op(segment, current_block, lhs, op, rhs)
             }
-
-            _ => bail!(
-                "type error: unsupported combination {:?} and {:?}",
-                lhs.ty(),
-                rhs.ty()
-            ),
         }
     }
 
@@ -65,11 +59,13 @@ impl IRGen<'_> {
 
         Ok(match (lhs.ty(), rhs.ty()) {
             (List(lhs_ty), Scaler(rhs_ty)) => {
+                // List args come first
                 let lhs_inst = segment.push(
                     inner_block,
                     Instruction::BlockArg { index: 0 },
                     Scaler(lhs_ty),
                 );
+
                 let rhs_inst = segment.push(
                     inner_block,
                     Instruction::BlockArg { index: 1 },
@@ -92,13 +88,13 @@ impl IRGen<'_> {
                     ty,
                 )
             }
-            (Scaler(_), Scaler(_)) => todo!(),
             (Scaler(lhs_ty), List(rhs_ty)) => {
                 let lhs_inst = segment.push(
                     inner_block,
                     Instruction::BlockArg { index: 1 },
                     Scaler(lhs_ty),
                 );
+                // List args come first
                 let rhs_inst = segment.push(
                     inner_block,
                     Instruction::BlockArg { index: 0 },
@@ -120,7 +116,38 @@ impl IRGen<'_> {
                     ty,
                 )
             }
-            (List(_), List(_)) => todo!(),
+            (List(lhs_ty), List(rhs_ty)) => {
+                // List args come first
+                let lhs_inst = segment.push(
+                    inner_block,
+                    Instruction::BlockArg { index: 0 },
+                    Scaler(lhs_ty),
+                );
+
+                let rhs_inst = segment.push(
+                    inner_block,
+                    Instruction::BlockArg { index: 1 },
+                    Scaler(rhs_ty),
+                );
+                let ty =
+                    Self::codegen_binary_op(segment, inner_block, lhs_inst, op, rhs_inst)?.ty();
+
+                let ty = match ty {
+                    Scaler(scaler) => List(scaler),
+                    List(_) => bail!("Block incorrectly returns a list, this indicates a bug"),
+                };
+                segment.push(
+                    current_block,
+                    Instruction::Map {
+                        lists: vec![lhs, rhs],
+                        args: vec![],
+                        block_id: inner_block,
+                    },
+                    ty,
+                )
+            }
+
+            (Scaler(_), Scaler(_)) => bail!("cant distribute op on scalers"),
         })
     }
 

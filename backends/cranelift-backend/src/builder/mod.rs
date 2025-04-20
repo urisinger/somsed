@@ -111,7 +111,6 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
         let mut values = Vec::with_capacity(instructions.len());
 
         for instr in instructions {
-            println!("{:?}", instr);
             let value = match instr {
                 Instruction::Const(number) => {
                     CraneliftValue::number(self.builder.ins().f64const(*number))

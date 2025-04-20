@@ -173,7 +173,6 @@ impl<'ctx> LLVMBackend<'ctx> {
                         continue;
                     }
                     let name = ident.to_string();
-                    println!("{:?}", expr.used_idents);
 
                     let args = [];
                     let rhs_ret_t = match rhs.return_type(exprs, &args) {

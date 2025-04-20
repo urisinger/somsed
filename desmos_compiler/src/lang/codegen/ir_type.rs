@@ -59,12 +59,9 @@ fn ty_binary(lhs: IRType, op: BinaryOp, rhs: IRType) -> Result<IRType> {
     match (lhs, op, rhs) {
         (Scaler(lhs), op, Scaler(rhs)) => Ok(Scaler(ty_scaler_binary(lhs, op, rhs)?)),
 
-        (List(lhs), op, Scaler(rhs)) => Ok(List(ty_scaler_binary(lhs, op, rhs)?)),
-
-        (Scaler(lhs), op, List(rhs)) => Ok(List(ty_scaler_binary(lhs, op, rhs)?)),
-
-        /* ── Everything else (lists, mixed scalars, unsupported op) ── */
-        _ => bail!("type error: {op:?} is not defined for {lhs:?} and {rhs:?}"),
+        (List(lhs), op, Scaler(rhs))
+        | (Scaler(lhs), op, List(rhs))
+        | (List(lhs), op, List(rhs)) => Ok(List(ty_scaler_binary(lhs, op, rhs)?)),
     }
 }
 
@@ -132,8 +129,6 @@ fn ty_call(
     else {
         bail!("{ident} is not a function")
     };
-
-    println!("{args:?}, {fn_params:?}");
 
     anyhow::ensure!(
         args.len() == fn_params.len(),

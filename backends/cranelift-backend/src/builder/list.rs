@@ -74,7 +74,8 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
             })
             .fold(None, |last_size, s| {
                 if let Some(last_size) = last_size {
-                    Some(self.builder.ins().fmin(last_size, s))
+                    let lt = self.builder.ins().icmp(IntCC::SignedLessThan, last_size, s);
+                    Some(self.builder.ins().select(lt, last_size, s))
                 } else {
                     Some(s)
                 }

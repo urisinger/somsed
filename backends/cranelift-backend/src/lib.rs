@@ -107,7 +107,6 @@ impl CraneliftBackend {
 
             builder.build_fn(segment)?;
 
-            println!("{}", &ctx.func.display());
             self.module.define_function(func_id, &mut ctx)?;
             self.module.clear_context(&mut ctx);
         }
@@ -124,7 +123,6 @@ impl CraneliftBackend {
 mod tests {
     use std::fmt::Debug;
 
-    use cranelift_module::Module;
     use desmos_compiler::{
         expressions::{ExpressionId, Expressions},
         lang::{
@@ -391,6 +389,18 @@ mod tests {
             "f(3) = [3, 4]", inputs = [1.0];
             "f(x+1) = g(x+1)", inputs = [1.0];
         }
+
+        test_list_scalar_add_rhs:{ "[x, y] + 3 = [4, 7]",  inputs = [1.0, 4.0];}
+        test_scalar_list_add_lhs:{ "5 + [x, y] = [8, 9]",  inputs = [3.0, 4.0];}
+
+        test_list_scalar_sub_rhs:{ "[x, y] - 2 = [-1, 1]", inputs = [1.0, 3.0];}
+        test_scalar_list_sub_lhs:{ "10 - [x, y] = [7, 5]", inputs = [3.0, 5.0];}
+
+        test_list_scalar_mul_rhs:{ "[x, y] * 2 = [2, 8]",  inputs = [1.0, 4.0];}
+        test_scalar_list_mul_lhs:{ "2 * [x, y] = [6, 8]",  inputs = [3.0, 4.0];}
+
+        test_list_scalar_div_rhs:{ "[x, y] / 2 = [1, 2]",  inputs = [2.0, 4.0];}
+        test_scalar_list_div_lhs:{ "20 / [x, y] = [4, 5]", inputs = [5.0, 4.0];}
 
         test_number_vs_list_mismatch:{ "x = [1, 2]", inputs = [1.0];}
 
