@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use cranelift::prelude::*;
 use cranelift_module::Module;
 use desmos_compiler::lang::codegen::ir::{IRScalerType, IRType};
@@ -7,7 +7,7 @@ use crate::value::{CraneliftList, CraneliftScaler, CraneliftValue};
 
 use super::CraneliftBuilder;
 
-impl<'ctx> CraneliftBuilder<'_, 'ctx> {
+impl CraneliftBuilder<'_, '_> {
     pub fn build_new_list(
         &mut self,
         elements: &[CraneliftValue],
@@ -228,7 +228,7 @@ impl<'ctx> CraneliftBuilder<'_, 'ctx> {
 
         self.builder
             .ins()
-            .call(free_fn, &[struct_value[1], total_size.into()]);
+            .call(free_fn, &[struct_value[1], total_size]);
 
         Ok(())
     }

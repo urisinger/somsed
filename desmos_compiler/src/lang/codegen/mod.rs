@@ -4,7 +4,7 @@ pub mod ir;
 pub mod ir_type;
 mod unary_op;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::{anyhow, bail, Context, Result};
 use ir::{BlockID, IRModule, IRScalerType, IRSegment, IRType, InstID, Instruction, SegmentKey};
@@ -24,7 +24,7 @@ impl<'a> IRGen<'a> {
     }
 
     pub fn exprs(&self) -> &Expressions {
-        &self.exprs
+        self.exprs
     }
 
     pub fn codegen_node(
@@ -273,7 +273,7 @@ impl<'a> IRGen<'a> {
         }
 
         let mut module = IRModule::new();
-        let mut codegen = IRGen::new(&expressions);
+        let mut codegen = IRGen::new(expressions);
 
         for (key, (expr_id, node)) in pending {
             match codegen.compile_fn(node, &key.args) {

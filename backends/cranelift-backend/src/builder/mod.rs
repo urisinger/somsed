@@ -3,7 +3,7 @@ use cranelift::prelude::*;
 use cranelift_module::{FuncOrDataId, Module};
 
 use desmos_compiler::lang::{
-    codegen::ir::{BlockID, IRModule, IRSegment, IRType, InstID, Instruction, SegmentKey},
+    codegen::ir::{IRModule, IRSegment, IRType, Instruction, SegmentKey},
     expr::{BinaryOp, UnaryOp},
 };
 
@@ -73,7 +73,7 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
 
         let mut i = 0;
         for ty in types {
-            let count = value_count(ty.clone()); // number of Values this type consumes
+            let count = value_count(*ty); // number of Values this type consumes
             let slice = &arg_values[i..i + count];
             let value = CraneliftValue::from_values(slice, *ty).unwrap(); // or handle None
             args.push(value);

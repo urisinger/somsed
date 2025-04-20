@@ -129,6 +129,12 @@ pub struct IRBlock {
     ret: IRType,
 }
 
+impl Default for IRBlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IRBlock {
     pub fn new() -> Self {
         Self {
@@ -168,6 +174,12 @@ pub struct IRSegment {
 
     pub entry_block: Option<BlockID>,
     ret: Option<InstID>,
+}
+
+impl Default for IRSegment {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IRSegment {
@@ -233,15 +245,20 @@ pub struct SegmentKey {
     pub args: Vec<IRType>,
 }
 
-impl ToString for SegmentKey {
-    fn to_string(&self) -> String {
-        let args_str = self
-            .args
-            .iter()
-            .map(|arg| format!("{}", arg))
-            .collect::<Vec<_>>()
-            .join(", ");
-        format!("{}({})", self.name, args_str)
+impl Display for SegmentKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        // print the segment name
+        write!(f, "{}(", self.name)?;
+
+        // print the argument list, comma‑separated
+        for (i, arg) in self.args.iter().enumerate() {
+            if i != 0 {
+                write!(f, ", ")?; // add comma between args
+            }
+            write!(f, "{}", arg)?; // `arg` must itself implement Display
+        }
+
+        write!(f, ")")
     }
 }
 
@@ -261,6 +278,12 @@ impl SegmentKey {
 #[derive(Debug)]
 pub struct IRModule {
     segments: HashMap<SegmentKey, IRSegment>,
+}
+
+impl Default for IRModule {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IRModule {

@@ -1,4 +1,3 @@
-use std::thread::current;
 
 use anyhow::{bail, Result};
 

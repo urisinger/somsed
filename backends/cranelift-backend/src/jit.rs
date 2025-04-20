@@ -130,11 +130,11 @@ pub struct ListLayout {
 }
 
 pub struct ExplicitFnImpl<T> {
-    pub function: unsafe extern "C" fn(f64) -> T,
+    function: unsafe extern "C" fn(f64) -> T,
 }
 
 impl<T> ExplicitFnImpl<T> {
-    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+    pub(crate) unsafe fn from_raw(ptr: *const u8) -> Self {
         let function = std::mem::transmute::<*const u8, unsafe extern "C" fn(f64) -> T>(ptr);
         Self { function }
     }
@@ -147,11 +147,11 @@ impl<T> ExplicitFn<T> for ExplicitFnImpl<T> {
 }
 
 pub struct ImplicitFnImpl<T> {
-    pub function: unsafe extern "C" fn(f64, f64) -> T,
+    function: unsafe extern "C" fn(f64, f64) -> T,
 }
 
 impl<T> ImplicitFnImpl<T> {
-    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+    pub(crate) unsafe fn from_raw(ptr: *const u8) -> Self {
         let function = std::mem::transmute::<*const u8, unsafe extern "C" fn(f64, f64) -> T>(ptr);
         Self { function }
     }
@@ -164,11 +164,11 @@ impl<T> ImplicitFn<T> for ImplicitFnImpl<T> {
 }
 
 pub struct ExplicitListFnImpl {
-    pub function: unsafe extern "C" fn(f64) -> ListLayout,
+    function: unsafe extern "C" fn(f64) -> ListLayout,
 }
 
 impl ExplicitListFnImpl {
-    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+    pub(crate) unsafe fn from_raw(ptr: *const u8) -> Self {
         let function =
             std::mem::transmute::<*const u8, unsafe extern "C" fn(f64) -> ListLayout>(ptr);
         Self { function }
@@ -183,7 +183,7 @@ impl<T: Clone> ExplicitFn<Vec<T>> for ExplicitListFnImpl {
 }
 
 impl ImplicitListFnImpl {
-    pub unsafe fn from_raw(ptr: *const u8) -> Self {
+    pub(crate) unsafe fn from_raw(ptr: *const u8) -> Self {
         let function =
             std::mem::transmute::<*const u8, unsafe extern "C" fn(f64, f64) -> ListLayout>(ptr);
         Self { function }
