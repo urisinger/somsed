@@ -35,6 +35,16 @@ impl Node {
                 }
             }
 
+            Index { list, index } => {
+                let index_ty = index.ty(env, params)?;
+                anyhow::ensure!(index_ty == Scaler(Number), "");
+                let list_ty = list.ty(env, params)?;
+                match list_ty {
+                    List(scaler) => Ok(Scaler(scaler)),
+                    Scaler(_) => anyhow::bail!("cannot index scaler"),
+                }
+            }
+
             FnArg { index } => params
                 .get(*index)
                 .cloned()

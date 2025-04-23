@@ -70,6 +70,10 @@ pub enum Node {
         val: Box<Node>,
         index: usize,
     },
+    Index {
+        list: Box<Node>,
+        index: Box<Node>,
+    },
     FnCall {
         ident: String,
         args: Vec<Node>,
@@ -162,6 +166,10 @@ impl Node {
                 lhs.replace_scope(scope);
                 rhs.replace_scope(scope);
             }
+            Node::Index { list, index } => {
+                list.replace_scope(scope);
+                index.replace_scope(scope);
+            }
             Node::UnaryOp { val, .. } => val.replace_scope(scope),
             Node::FnCall { args, .. } => args.iter_mut().for_each(|node| node.replace_scope(scope)),
         }
@@ -184,7 +192,10 @@ impl Node {
             Node::Extract { val, .. } => {
                 val.used_idents(idents);
             }
-
+            Node::Index { list, index } => {
+                list.used_idents(idents);
+                index.used_idents(idents);
+            }
             Node::BinOp { lhs, rhs, .. } => {
                 lhs.used_idents(idents);
                 rhs.used_idents(idents);
@@ -248,6 +259,10 @@ impl Node {
                 rhs.collect_functions(env, param_types, fns)?;
             }
             Node::Extract { val, .. } => val.collect_functions(env, param_types, fns)?,
+            Node::Index { list, index } => {
+                list.collect_functions(env, param_types, fns)?;
+                index.collect_functions(env, param_types, fns)?;
+            }
 
             Node::Lit(Literal::List(nodes)) => {
                 for n in nodes {

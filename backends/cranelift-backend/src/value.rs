@@ -29,6 +29,22 @@ pub enum CraneliftList {
     Point([Value; 2]),
 }
 
+impl CraneliftList {
+    pub fn element_type_and_size(&self) -> (IRScalerType, usize) {
+        match self {
+            CraneliftList::Number(_) => (IRScalerType::Number, 8),
+            CraneliftList::Point(_) => (IRScalerType::Point, 16),
+        }
+    }
+
+    pub fn values(&self) -> [Value; 2] {
+        match self {
+            CraneliftList::Number(vals) => *vals,
+            CraneliftList::Point(vals) => *vals,
+        }
+    }
+}
+
 impl CraneliftValue {
     /// Construct from flat Cranelift values and expected IRType
     pub fn from_values(values: &[Value], ty: IRType) -> Option<Self> {

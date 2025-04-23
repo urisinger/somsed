@@ -24,24 +24,10 @@ impl IRGen<'_> {
                 UnaryOp::Neg => {
                     let x =
                         segment.push(current_block, Instruction::Extract(lhs, 0), IRType::NUMBER);
-                    let x = segment.push(
-                        current_block,
-                        Instruction::UnaryOp {
-                            op: UnaryOp::Neg,
-                            val: x,
-                        },
-                        IRType::NUMBER,
-                    );
+                    let x = segment.push(current_block, Instruction::Neg(x), IRType::NUMBER);
                     let y =
                         segment.push(current_block, Instruction::Extract(lhs, 1), IRType::NUMBER);
-                    let y = segment.push(
-                        current_block,
-                        Instruction::UnaryOp {
-                            op: UnaryOp::Neg,
-                            val: y,
-                        },
-                        IRType::NUMBER,
-                    );
+                    let y = segment.push(current_block, Instruction::Neg(y), IRType::NUMBER);
 
                     segment.push(current_block, Instruction::Point(x, y), IRType::POINT)
                 }
@@ -60,7 +46,14 @@ impl IRGen<'_> {
     ) -> Result<InstID> {
         Ok(segment.push(
             current_block,
-            Instruction::UnaryOp { op, val: lhs },
+            match op {
+                UnaryOp::Neg => Instruction::Neg,
+                UnaryOp::Sqrt => Instruction::Sqrt,
+                UnaryOp::Sin => Instruction::Sin,
+                UnaryOp::Cos => Instruction::Cos,
+                UnaryOp::Tan => Instruction::Tan,
+                _ => todo!(),
+            }(lhs),
             IRType::NUMBER,
         ))
     }

@@ -8,16 +8,20 @@ use crate::value::{CraneliftList, CraneliftScaler, CraneliftValue};
 use super::CraneliftBuilder;
 
 impl CraneliftBuilder<'_, '_> {
+    pub fn get_element_size(ty: IRType) -> Result<usize> {
+        match ty {
+            IRType::Scaler(IRScalerType::Number) => Ok(8),
+            IRType::Scaler(IRScalerType::Point) => Ok(16),
+            IRType::List(_) => bail!("Nested lists are not supported"),
+        }
+    }
+
     pub fn build_new_list(
         &mut self,
         elements: &[CraneliftValue],
         ty: IRType,
     ) -> Result<[Value; 2]> {
-        let element_size = match ty {
-            IRType::Scaler(IRScalerType::Number) => 8,
-            IRType::Scaler(IRScalerType::Point) => 16,
-            IRType::List(_) => bail!("list cannot be made of lists"),
-        };
+        let element_size = Self::get_element_size(ty)?;
 
         let total_size_bytes = (elements.len() * element_size) as i64;
 

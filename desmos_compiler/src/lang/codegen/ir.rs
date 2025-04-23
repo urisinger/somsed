@@ -79,7 +79,7 @@ impl InstID {
 #[derive(Debug, Clone)]
 pub enum Instruction {
     // f64 -> Number
-    Const(f64),
+    Number(f64),
 
     // Number, Number -> Point
     Point(InstID, InstID),
@@ -91,6 +91,7 @@ pub enum Instruction {
     PointList(Vec<InstID>),
 
     Extract(InstID, usize),
+    Index(InstID, InstID),
 
     Map {
         lists: Vec<InstID>,
@@ -98,16 +99,17 @@ pub enum Instruction {
         block_id: BlockID,
     },
 
-    BinaryOp {
-        lhs: InstID,
-        op: BinaryOp,
-        rhs: InstID,
-    },
+    Add(InstID, InstID),
+    Sub(InstID, InstID),
+    Mul(InstID, InstID),
+    Div(InstID, InstID),
+    Pow(InstID, InstID),
 
-    UnaryOp {
-        op: UnaryOp,
-        val: InstID,
-    },
+    Neg(InstID),
+    Sqrt(InstID),
+    Sin(InstID),
+    Cos(InstID),
+    Tan(InstID),
 
     Call {
         func: String,

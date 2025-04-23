@@ -37,7 +37,7 @@ impl<'a> IRGen<'a> {
         Ok(match expr {
             Node::Lit(Literal::Float(value)) => segment.push(
                 current_block,
-                Instruction::Const(*value),
+                Instruction::Number(*value),
                 IRType::Scaler(IRScalerType::Number),
             ),
             Node::Lit(Literal::List(elements)) => {
@@ -78,6 +78,17 @@ impl<'a> IRGen<'a> {
                     Instruction::Extract(val, *index),
                     IRType::Scaler(IRScalerType::Number),
                 )
+            }
+            Node::Index { list, index } => {
+                let list = self.codegen_node(segment, arg_types, current_block, list)?;
+                let index = self.codegen_node(segment, arg_types, current_block, index)?;
+
+                let ty = match list.ty() {
+                    IRType::List(scaler) => IRType::Scaler(scaler),
+                    IRType::Scaler(_) => bail!("cannot index scaler"),
+                };
+
+                segment.push(current_block, Instruction::Index(list, index), ty)
             }
             Node::Lit(Literal::Point(x, y)) => {
                 let x = self.codegen_node(segment, arg_types, current_block, x)?;

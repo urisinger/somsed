@@ -2,9 +2,8 @@ use anyhow::{anyhow, bail, Context};
 use cranelift::prelude::*;
 use cranelift_module::{FuncOrDataId, Module};
 
-use desmos_compiler::lang::{
-    codegen::ir::{IRModule, IRSegment, IRType, Instruction, SegmentKey},
-    expr::{BinaryOp, UnaryOp},
+use desmos_compiler::lang::codegen::ir::{
+    IRModule, IRScalerType, IRSegment, IRType, InstID, Instruction, SegmentKey,
 };
 
 use crate::value::CraneliftList;
@@ -111,8 +110,9 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
         let mut values = Vec::with_capacity(instructions.len());
 
         for instr in instructions {
+            let get_number = |id: &InstID| match_value!(values[id.inst()], Scaler::Number);
             let value = match instr {
-                Instruction::Const(number) => {
+                Instruction::Number(number) => {
                     CraneliftValue::number(self.builder.ins().f64const(*number))
                 }
 
@@ -125,30 +125,128 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
                     CraneliftValue::number(match_value!(values[val.inst()], Scaler::Point)?[*index])
                 }
 
-                Instruction::BinaryOp { lhs, op, rhs } => {
-                    let lhs = match_value!(values[lhs.inst()], Scaler::Number)?;
-                    let rhs = match_value!(values[rhs.inst()], Scaler::Number)?;
-                    CraneliftValue::number(match op {
-                        BinaryOp::Add => self.builder.ins().fadd(lhs, rhs),
-                        BinaryOp::Sub => self.builder.ins().fsub(lhs, rhs),
-                        BinaryOp::Dot => self.builder.ins().fmul(lhs, rhs),
-                        BinaryOp::Paran => self.builder.ins().fmul(lhs, rhs),
-                        BinaryOp::Div => self.builder.ins().fdiv(lhs, rhs),
-                        BinaryOp::Pow => self.pow(lhs, rhs),
-                    })
+                Instruction::Index(list_id, index_id) => {
+                    let list_val = &values[list_id.inst()];
+                    let (element_type, element_size, len_val, base_ptr) = match list_val {
+                        CraneliftValue::List(list) => {
+                            let (element_type, element_size) = list.element_type_and_size();
+                            let [len, base] = list.values();
+                            (element_type, element_size, len, base)
+                        }
+                        _ => bail!("Expected list value for indexing"),
+                    };
+
+                    // Get index
+                    let index_f64 = match &values[index_id.inst()] {
+                        CraneliftValue::Scaler(CraneliftScaler::Number([val])) => *val,
+                        _ => bail!("Expected numeric index"),
+                    };
+
+                    let index = self.builder.ins().fcvt_to_sint_sat(types::I64, index_f64);
+                    let zero = self.builder.ins().iconst(types::I64, 0);
+
+                    let too_small = self.builder.ins().icmp(IntCC::SignedLessThan, index, zero);
+                    let too_big =
+                        self.builder
+                            .ins()
+                            .icmp(IntCC::SignedGreaterThanOrEqual, index, len_val);
+                    let out_of_bounds = self.builder.ins().bor(too_small, too_big);
+
+                    // Prepare blocks
+                    let then_block = self.builder.create_block();
+                    let else_block = self.builder.create_block();
+                    let merge_block = self.builder.create_block();
+
+                    // Branch based on bounds check
+                    self.builder
+                        .ins()
+                        .brif(out_of_bounds, then_block, &[], else_block, &[]);
+
+                    // then: return NaN
+                    self.builder.switch_to_block(then_block);
+                    self.builder.seal_block(then_block);
+                    let nan = self.builder.ins().f64const(f64::NAN);
+                    match element_type {
+                        IRScalerType::Number => {
+                            _ = self.builder.append_block_param(merge_block, types::F64);
+                            self.builder.ins().jump(merge_block, &[nan]);
+                        }
+                        IRScalerType::Point => {
+                            let nan2 = self.builder.ins().f64const(f64::NAN);
+                            _ = self.builder.append_block_param(merge_block, types::F64);
+                            _ = self.builder.append_block_param(merge_block, types::F64);
+                            self.builder.ins().jump(merge_block, &[nan, nan2]);
+                        }
+                    }
+
+                    // else: do the actual indexing
+                    self.builder.switch_to_block(else_block);
+                    self.builder.seal_block(else_block);
+                    let offset = self.builder.ins().imul_imm(index, element_size as i64);
+                    let addr = self.builder.ins().iadd(base_ptr, offset);
+
+                    match element_type {
+                        IRScalerType::Number => {
+                            let val = self
+                                .builder
+                                .ins()
+                                .load(types::F64, MemFlags::new(), addr, 0);
+                            self.builder.ins().jump(merge_block, &[val]);
+                        }
+                        IRScalerType::Point => {
+                            let x = self
+                                .builder
+                                .ins()
+                                .load(types::F64, MemFlags::new(), addr, 0);
+                            let y = self
+                                .builder
+                                .ins()
+                                .load(types::F64, MemFlags::new(), addr, 8);
+                            self.builder.ins().jump(merge_block, &[x, y]);
+                        }
+                    }
+
+                    // merge
+                    self.builder.switch_to_block(merge_block);
+                    self.builder.seal_block(merge_block);
+
+                    match element_type {
+                        IRScalerType::Number => {
+                            let result = self.builder.block_params(merge_block)[0];
+                            CraneliftValue::number(result)
+                        }
+                        IRScalerType::Point => {
+                            let params = self.builder.block_params(merge_block);
+                            CraneliftValue::point([params[0], params[1]])
+                        }
+                    }
                 }
 
-                Instruction::UnaryOp { op, val } => {
-                    let val = match_value!(values[val.inst()], Scaler::Number)?;
-                    CraneliftValue::number(match op {
-                        UnaryOp::Neg => self.builder.ins().fneg(val),
-                        UnaryOp::Sqrt => self.builder.ins().sqrt(val),
-                        UnaryOp::Sin => self.sin(val),
-                        UnaryOp::Cos => self.cos(val),
-                        UnaryOp::Tan => self.tan(val),
-                        _ => todo!(),
-                    })
+                Instruction::Add(lhs, rhs) => CraneliftValue::number(
+                    self.builder.ins().fadd(get_number(lhs)?, get_number(rhs)?),
+                ),
+                Instruction::Sub(lhs, rhs) => CraneliftValue::number(
+                    self.builder.ins().fsub(get_number(lhs)?, get_number(rhs)?),
+                ),
+                Instruction::Mul(lhs, rhs) => CraneliftValue::number(
+                    self.builder.ins().fmul(get_number(lhs)?, get_number(rhs)?),
+                ),
+                Instruction::Div(lhs, rhs) => CraneliftValue::number(
+                    self.builder.ins().fdiv(get_number(lhs)?, get_number(rhs)?),
+                ),
+                Instruction::Pow(lhs, rhs) => {
+                    CraneliftValue::number(self.pow(get_number(lhs)?, get_number(rhs)?))
                 }
+
+                Instruction::Neg(val) => {
+                    CraneliftValue::number(self.builder.ins().fneg(get_number(val)?))
+                }
+                Instruction::Sqrt(val) => {
+                    CraneliftValue::number(self.builder.ins().sqrt(get_number(val)?))
+                }
+                Instruction::Sin(val) => CraneliftValue::number(self.sin(get_number(val)?)),
+                Instruction::Cos(val) => CraneliftValue::number(self.cos(get_number(val)?)),
+                Instruction::Tan(val) => CraneliftValue::number(self.tan(get_number(val)?)),
 
                 Instruction::Call { func, args } => {
                     let segment_key =

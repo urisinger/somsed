@@ -22,7 +22,8 @@ lazy_static! {
             .op(Op::postfix(Rule::fac)
                 | Op::postfix(Rule::pow)
                 | Op::postfix(Rule::dot_x)
-                | Op::postfix(Rule::dot_y))
+                | Op::postfix(Rule::dot_y)
+                | Op::postfix(Rule::index))
             .op(Op::prefix(Rule::neg)
                 | Op::prefix(Rule::sqrt)
                 | Op::prefix(Rule::sin)
@@ -213,6 +214,14 @@ fn parse_node(pairs: Pairs<Rule>) -> Result<Node> {
                         lhs: Box::new(lhs?),
                         op: BinaryOp::Pow,
                         rhs: Box::new(parse_node(exponent.into_inner())?),
+                    }
+                }
+                Rule::index => {
+                    let mut pairs = op.into_inner();
+                    let index = pairs.next().unwrap();
+                    Node::Index {
+                        list: Box::new(lhs?),
+                        index: Box::new(parse_node(index.into_inner())?),
                     }
                 }
                 _ => Node::Extract {

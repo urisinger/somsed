@@ -1,4 +1,3 @@
-
 use anyhow::{bail, Result};
 
 use crate::lang::{
@@ -159,7 +158,14 @@ impl IRGen<'_> {
     ) -> Result<InstID> {
         Ok(segment.push(
             current_block,
-            Instruction::BinaryOp { lhs, op, rhs },
+            match op {
+                BinaryOp::Add => Instruction::Add,
+                BinaryOp::Sub => Instruction::Sub,
+                BinaryOp::Dot => Instruction::Mul,
+                BinaryOp::Paran => Instruction::Mul,
+                BinaryOp::Div => Instruction::Div,
+                BinaryOp::Pow => Instruction::Pow,
+            }(lhs, rhs),
             IRType::NUMBER,
         ))
     }
