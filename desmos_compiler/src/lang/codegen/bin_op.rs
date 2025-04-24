@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 
 use crate::lang::{
     codegen::ir::{IRScalerType, IRType},
-    expr::BinaryOp,
+    parser::ast::BinaryOperator,
 };
 
 use super::{
@@ -15,7 +15,7 @@ impl IRGen<'_> {
         segment: &mut IRSegment,
         current_block: BlockID,
         lhs: InstID,
-        op: BinaryOp,
+        op: BinaryOperator,
         rhs: InstID,
     ) -> Result<InstID> {
         use IRScalerType::*;
@@ -49,7 +49,7 @@ impl IRGen<'_> {
         segment: &mut IRSegment,
         current_block: BlockID,
         lhs: InstID,
-        op: BinaryOp,
+        op: BinaryOperator,
         rhs: InstID,
     ) -> Result<InstID> {
         use IRType::*;
@@ -153,18 +153,19 @@ impl IRGen<'_> {
         segment: &mut IRSegment,
         current_block: BlockID,
         lhs: InstID,
-        op: BinaryOp,
+        op: BinaryOperator,
         rhs: InstID,
     ) -> Result<InstID> {
         Ok(segment.push(
             current_block,
             match op {
-                BinaryOp::Add => Instruction::Add,
-                BinaryOp::Sub => Instruction::Sub,
-                BinaryOp::Dot => Instruction::Mul,
-                BinaryOp::Paran => Instruction::Mul,
-                BinaryOp::Div => Instruction::Div,
-                BinaryOp::Pow => Instruction::Pow,
+                BinaryOperator::Add => Instruction::Add,
+                BinaryOperator::Sub => Instruction::Sub,
+                BinaryOperator::Dot => Instruction::Mul,
+                BinaryOperator::Mul => Instruction::Mul,
+                BinaryOperator::Div => Instruction::Div,
+                BinaryOperator::Pow => Instruction::Pow,
+                _ => todo!(),
             }(lhs, rhs),
             IRType::NUMBER,
         ))
@@ -174,10 +175,10 @@ impl IRGen<'_> {
         segment: &mut IRSegment,
         current_block: BlockID,
         lhs: InstID,
-        op: BinaryOp,
+        op: BinaryOperator,
         rhs: InstID,
     ) -> Result<InstID> {
-        use BinaryOp::*;
+        use BinaryOperator::*;
         match op {
             Add | Sub => {
                 let mut extract = |inst: InstID, index: usize| {
@@ -204,12 +205,12 @@ impl IRGen<'_> {
         segment: &mut IRSegment,
         current_block: BlockID,
         number: InstID,
-        op: BinaryOp,
+        op: BinaryOperator,
         point: InstID,
     ) -> Result<InstID> {
-        use BinaryOp::*;
+        use BinaryOperator::*;
         match op {
-            Dot | Paran => {
+            Dot | Mul => {
                 let mut extract = |inst: InstID, index: usize| {
                     segment.push(
                         current_block,
@@ -234,12 +235,12 @@ impl IRGen<'_> {
         segment: &mut IRSegment,
         current_block: BlockID,
         point: InstID,
-        op: BinaryOp,
+        op: BinaryOperator,
         number: InstID,
     ) -> Result<InstID> {
-        use BinaryOp::*;
+        use BinaryOperator::*;
         match op {
-            Dot | Paran | Div => {
+            Dot | Mul | Div => {
                 let mut extract = |inst: InstID, index: usize| {
                     segment.push(
                         current_block,

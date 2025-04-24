@@ -1,12 +1,13 @@
 use crate::{ExpressionId, Expressions, Somsed};
 use anyhow::{anyhow, Context, Result};
 use cranelift_backend::CraneliftBackend;
-use desmos_compiler::lang::codegen::backend::jit::{ExplicitFn, ExplicitJitFn, JitValue};
-use desmos_compiler::lang::codegen::backend::ExecutionEngine;
 use desmos_compiler::lang::codegen::ir::IRType;
+use desmos_compiler::lang::codegen::jit::function::{ExplicitFn, ExplicitJitFn, JitValue};
+use desmos_compiler::lang::codegen::jit::ExecutionEngine;
 use desmos_compiler::lang::codegen::IRGen;
-use desmos_compiler::lang::expr::{Expr, ResolvedExpr};
+use desmos_compiler::lang::parser::ast::{Expression, ExpressionListEntry};
 use flume::r#async::RecvStream;
+use flume::RecvError;
 use iced::Vector;
 use std::collections::{HashMap, HashSet};
 use std::thread;
@@ -68,7 +69,11 @@ pub fn points_server() -> RecvStream<'static, Event> {
         loop {
             let mut compute_requests = HashSet::new();
 
-            let mut request = equation_rx.recv().unwrap();
+            let mut request = match equation_rx.recv() {
+                Ok(req) => req,
+                Err(RecvError::Disconnected) => return,
+            };
+
             loop {
                 match request {
                     PointsServerRequest::Compile {
@@ -143,43 +148,35 @@ pub fn points_server() -> RecvStream<'static, Event> {
                     .as_ref()
                     .expect("backend should have been initlized");
                 let points_result: Result<ComputationResult> = (|| match &expressions.exprs[&id] {
-                    ResolvedExpr {
-                        expr: Expr::Explicit { lhs },
-                        used_idents,
-                    } if !used_idents.is_empty() => match backend.get_explicit_fn(
-                        &format!("explicit_{}(f64)", id.0),
-                        &lhs.ty(&expressions, &[IRType::NUMBER, IRType::NUMBER])?,
-                    ) {
-                        Some(ExplicitJitFn::Number(lhs)) => {
-                            points_explicit(&|n: f64| lhs.call(n), range, mid, 9, 14)
-                                .map(ComputationResult::Explicit)
+                    ExpressionListEntry::Expression(expr) => {
+                        let mut types = HashMap::new();
+                        types.insert("x".to_string(), IRType::NUMBER);
+                        match backend.get_explicit_fn(
+                            &format!("explicit_{}(f64)", id.0),
+                            &expr.ty(&expressions, &types)?,
+                        ) {
+                            Some(ExplicitJitFn::Number(lhs)) => {
+                                points_explicit(&|n: f64| lhs.call(n), range, mid, 9, 14)
+                                    .map(ComputationResult::Explicit)
+                            }
+                            Some(ExplicitJitFn::Point(_)) => {
+                                Err(anyhow!("Cant Graph explicit graph of points"))
+                            }
+                            Some(_) => Err(anyhow!("Cant Graph explicit graph of list")),
+                            None => Err(anyhow!("Explicit fn not found")),
                         }
-                        Some(ExplicitJitFn::Point(_)) => {
-                            Err(anyhow!("Cant Graph explicit graph of points"))
-                        }
-                        Some(_) => Err(anyhow!("Cant Graph explicit graph of list")),
-                        None => Err(anyhow!("Explicit fn not found")),
-                    },
+                    }
 
-                    ResolvedExpr {
-                        expr: Expr::Explicit { lhs: node },
-                        ..
-                    } => Ok(ComputationResult::Constant(
-                        backend
-                            .eval(
-                                &format!("explicit_{}()", id.0),
-                                &node.ty(&expressions, &[])?,
-                            )
-                            .with_context(|| anyhow!("Const fn not found"))?,
-                    )),
-                    ResolvedExpr {
-                        expr: Expr::VarDef { rhs: node, ident },
-                        ..
-                    } => Ok(ComputationResult::Constant(
-                        backend
-                            .eval(&format!("{}()", ident), &node.ty(&expressions, &[])?)
-                            .with_context(|| anyhow!("Const fn not found"))?,
-                    )),
+                    ExpressionListEntry::Assignment { name, value } => {
+                        Ok(ComputationResult::Constant(
+                            backend
+                                .eval(
+                                    &format!("{}()", name),
+                                    &value.ty(&expressions, &HashMap::new())?,
+                                )
+                                .with_context(|| anyhow!("Const fn not found"))?,
+                        ))
+                    }
                     _ => Err(anyhow!("Only explicit expressions are supported")),
                 })();
 

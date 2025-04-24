@@ -1,8 +1,11 @@
 use anyhow::Result;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
-use crate::lang::expr::{Expr, ResolvedExpr};
+use crate::lang::parser::{
+    ast::ExpressionListEntry, ast_parser::parse_str_into_expression_list_entry,
+    latex_parser::parse_latex, latex_tree_flattener::Token,
+};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExpressionId(pub u32);
@@ -15,7 +18,7 @@ impl From<u32> for ExpressionId {
 
 #[derive(Debug, Default)]
 pub struct Expressions {
-    pub exprs: HashMap<ExpressionId, ResolvedExpr>,
+    pub exprs: HashMap<ExpressionId, ExpressionListEntry>,
     idents: HashMap<String, ExpressionId>,
 }
 
@@ -26,12 +29,12 @@ impl Expressions {
 
     pub fn remove_expr(&mut self, id: impl Into<ExpressionId>) {
         let k = id.into();
-        if let Some(ResolvedExpr {
-            expr: Expr::VarDef { ident, .. } | Expr::FnDef { ident, .. },
-            ..
-        }) = self.exprs.remove(&k)
+        if let Some(
+            ExpressionListEntry::Assignment { name, .. }
+            | ExpressionListEntry::FunctionDeclaration { name, .. },
+        ) = self.exprs.remove(&k)
         {
-            self.idents.remove(&ident);
+            self.idents.remove(&name);
         }
     }
 
@@ -42,23 +45,7 @@ impl Expressions {
         })
     }
 
-    pub fn get_used_idents(&self, name: &str) -> Option<&HashSet<String>> {
-        if let Some(id) = self.idents.get(name) {
-            self.exprs.get(id).map(|e| &e.used_idents)
-        } else {
-            None
-        }
-    }
-
-    pub fn get_expr(&self, name: &str) -> Option<&Expr> {
-        if let Some(id) = self.idents.get(name) {
-            self.exprs.get(id).map(|e| &e.expr)
-        } else {
-            None
-        }
-    }
-
-    pub fn get_resolved_expr(&self, name: &str) -> Option<&ResolvedExpr> {
+    pub fn get_expr(&self, name: &str) -> Option<&ExpressionListEntry> {
         if let Some(id) = self.idents.get(name) {
             self.exprs.get(id)
         } else {
@@ -66,11 +53,12 @@ impl Expressions {
         }
     }
 
-    fn parse_expr(&mut self, s: &str, k: ExpressionId) -> Result<ResolvedExpr> {
-        let expr = ResolvedExpr::parse(s)?;
-        match &expr.expr {
-            Expr::VarDef { ident, .. } | Expr::FnDef { ident, .. } => {
-                self.idents.insert(ident.clone(), k);
+    fn parse_expr(&mut self, s: &str, k: ExpressionId) -> Result<ExpressionListEntry> {
+        let expr = parse_str_into_expression_list_entry(s, Token::EndOfInput)?;
+        match &expr {
+            ExpressionListEntry::Assignment { name, .. }
+            | ExpressionListEntry::FunctionDeclaration { name, .. } => {
+                self.idents.insert(name.to_string(), k);
             }
             _ => (),
         };

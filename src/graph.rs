@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::Div};
 
 use desmos_compiler::{
     expressions::ExpressionId,
-    lang::codegen::backend::jit::{JitValue, PointValue},
+    lang::codegen::jit::function::{JitValue, PointValue},
 };
 use iced::{
     event::Status,

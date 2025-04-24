@@ -3,8 +3,6 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
 };
 
-use crate::lang::expr::{BinaryOp, UnaryOp};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IRType {
     Scaler(IRScalerType),

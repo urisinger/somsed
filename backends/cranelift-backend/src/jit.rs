@@ -1,11 +1,11 @@
 use cranelift_module::{FuncOrDataId, Module};
 
 use desmos_compiler::lang::codegen::{
-    backend::{
-        jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue},
+    ir::{IRScalerType, IRType},
+    jit::{
+        function::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue},
         ExecutionEngine,
     },
-    ir::{IRScalerType, IRType},
 };
 
 use super::CraneliftBackend;

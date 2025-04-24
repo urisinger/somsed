@@ -143,25 +143,40 @@ mod tests {
     use crate::CraneliftBackend;
 
     macro_rules! generate_explicit_tests {
-    (
-        $(
-            $name:ident: $input:expr => $expected:expr $(, inputs = [$($input_vals:expr),*])?
-        );* $(;)?
-    ) => {
-        $(
-            #[test]
-            fn $name() -> Result<()> {
-                let inputs = vec![$($($input_vals),*)?];
-                run_explicit_test(stringify!($name), $input, $expected, inputs)
-            }
-        )*
-    };
+        (
+            $(
+                $name:ident: $input:expr => $expected:tt $(, inputs = [$($input_vals:expr),*])?
+            );* $(;)?
+        ) => {
+            $(
+                #[test]
+                fn $name() -> Result<()> {
+                    let inputs = vec![$($($input_vals),*)?];
+                    let expected = parse_expected!($expected);
+                    run_explicit_test(stringify!($name), $input, expected, inputs)
+                }
+            )*
+        };
+    }
+    macro_rules! parse_expected {
+([$($val:expr),*]) => {
+    ExpectedValue::NumberList(vec![$($val),*])
+};
+($val:literal) => {
+    ExpectedValue::Number($val)
+};
 }
+
+    #[derive(Debug)]
+    enum ExpectedValue {
+        Number(f64),
+        NumberList(Vec<f64>),
+    }
 
     fn run_explicit_test(
         test_name: &str,
         input: &str,
-        expected: f64,
+        expected: ExpectedValue,
         inputs: Vec<f64>,
     ) -> Result<()> {
         let mut expressions = Expressions::new();
@@ -172,13 +187,11 @@ mod tests {
         let mut backend = CraneliftBackend::new().unwrap();
         backend.compile_module(&ir)?;
 
-        // Handle compilation errors
         if !errors.is_empty() {
             panic!("Compilation errors in '{}': {:?}", test_name, errors);
         }
 
         let args = vec![IRType::NUMBER; inputs.len()];
-
         let key = SegmentKey::new("explicit_0".to_string(), args);
         let ty = ir
             .get_segment(&key)
@@ -188,49 +201,35 @@ mod tests {
 
         let x = inputs.last().copied().unwrap_or(0.0);
         let result = match backend.get_explicit_fn(&key.to_string(), &ty) {
-            Some(ExplicitJitFn::Number(lhs)) => lhs.call(x),
-            Some(ExplicitJitFn::Point(_)) => {
-                panic!(
-                    "Point results are not supported in this test for '{}'",
-                    test_name
-                );
-            }
-
-            Some(_) => {
-                panic!(
-                    "List results are not supported in this test for '{}'",
-                    test_name
-                );
-            }
-            None => match backend
+            Some(ExplicitJitFn::Number(lhs)) => JitValue::Number(lhs.call(x)),
+            Some(ExplicitJitFn::NumberList(lhs)) => JitValue::NumberList(lhs.call(x)),
+            Some(_) => panic!("Unsupported result type in test '{}'", test_name),
+            None => backend
                 .eval(&key.name, &ty)
-                .expect("expected either Constant or explicit value")
-            {
-                JitValue::Number(val) => val,
-                JitValue::Point(_) => {
-                    panic!(
-                        "Point results are not supported in this test for '{}'",
-                        test_name
-                    );
-                }
-
-                _ => {
-                    panic!(
-                        "List results are not supported in this test for '{}'",
-                        test_name
-                    );
-                }
-            },
+                .expect("expected either Constant or explicit value"),
         };
-        assert_eq!(
-            result, expected,
-            "Test '{}' failed: expected {}, got {}",
-            test_name, expected, result
-        );
+
+        match (expected, result) {
+            (ExpectedValue::Number(expected_val), JitValue::Number(actual_val)) => {
+                assert_eq!(
+                    actual_val, expected_val,
+                    "Test '{}' failed: expected {}, got {}",
+                    test_name, expected_val, actual_val
+                );
+            }
+            (ExpectedValue::NumberList(expected_list), JitValue::NumberList(actual_list)) => {
+                compare_lists(&expected_list, &actual_list, test_name);
+            }
+            (exp, got) => {
+                panic!(
+                    "Test '{}' failed: mismatched types. expected {:?}, got {:?}",
+                    test_name, exp, got
+                );
+            }
+        }
 
         Ok(())
     }
-
     macro_rules! generate_implicit_test_groups {
         (
             $(
@@ -449,5 +448,52 @@ mod tests {
         test_variable_addition: "x + 5" => 12.0, inputs = [7.0];
         test_variable_power: "x^{2}" => 49.0, inputs = [7.0];
         test_variable_division: "10 / x" => 2.0, inputs = [5.0];
+
+        // Constant lists
+        test_constant_list: "[1, 2, 3]" => [1.0, 2.0, 3.0];
+
+        // List with arithmetic
+        test_list_addition: "[1+1, 2+2]" => [2.0, 4.0];
+        test_list_multiplication: "[2*3, 4*5]" => [6.0, 20.0];
+
+        // Using input in list expressions
+        test_list_with_input: "[x, x+1, x+2]" => [5.0, 6.0, 7.0], inputs = [5.0];
+
+
+        // Nested expressions in lists
+        test_list_nested_ops: "[(x+2)^{2}, (x-1)^{2}]" => [16.0, 1.0], inputs = [2.0];
+
+        // Longer list
+        test_longer_list: "[1,2,3,4,5,6,7,8,9,10]" => [1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0];
+
+        // Empty list (if supported by your parser/runtime)
+        test_empty_list: "[]" => [];
+
+        // Repeated input
+        test_list_expression_repeat: "[x, x, x]" => [7.0, 7.0, 7.0], inputs = [7.0];
+
+        test_list_add_list: "[1, 2, 3] + [4, 5, 6]" => [5.0, 7.0, 9.0];
+        test_list_sub_list: "[10, 20, 30] - [1, 2, 3]" => [9.0, 18.0, 27.0];
+        test_list_mul_list: "[2, 3, 4] * [5, 6, 7]" => [10.0, 18.0, 28.0];
+        test_list_div_list: "[8, 9, 10] / [2, 3, 5]" => [4.0, 3.0, 2.0];
+        test_list_pow_list: "[2, 3, 4]^{3}" => [8.0, 27.0, 64.0];
+
+        // --- Uneven length list operations (should truncate to smaller length) ---
+        test_list_add_shorter: "[1, 2, 3, 4] + [10, 20]" => [11.0, 22.0];
+        test_list_sub_shorter: "[10, 20] - [1, 2, 3]" => [9.0, 18.0];
+
+        // --- List ⊕ Scalar ---
+        test_list_add_scalar_rhs: "[1, 2, 3] + 5" => [6.0, 7.0, 8.0];
+        test_list_sub_scalar_rhs: "[10, 20, 30] - 10" => [0.0, 10.0, 20.0];
+        test_list_mul_scalar_rhs: "[1, 2, 3] * 4" => [4.0, 8.0, 12.0];
+        test_list_div_scalar_rhs: "[8, 16, 32] / 2" => [4.0, 8.0, 16.0];
+        test_list_pow_scalar_rhs: "[2, 3, 4]^{2}" => [4.0, 9.0, 16.0];
+
+        // --- Scalar ⊕ List ---
+        test_scalar_add_list_lhs: "10 + [1, 2, 3]" => [11.0, 12.0, 13.0];
+        test_scalar_sub_list_lhs: "10 - [1, 2, 3]" => [9.0, 8.0, 7.0];
+        test_scalar_mul_list_lhs: "2 * [3, 4, 5]" => [6.0, 8.0, 10.0];
+        test_scalar_div_list_lhs: "20 / [2, 4, 5]" => [10.0, 5.0, 4.0];
+        test_scalar_pow_list_lhs: "2^{[3, 4, 5]}" => [8.0, 16.0, 32.0];
     }
 }

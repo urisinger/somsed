@@ -1,6 +1,6 @@
-pub mod jit;
+pub mod function;
 
-use jit::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
+use function::{ExplicitFn, ExplicitJitFn, ImplicitFn, ImplicitJitFn, JitValue, PointValue};
 
 use super::ir::IRType;
 
