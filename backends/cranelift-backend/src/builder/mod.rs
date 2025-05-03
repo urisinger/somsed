@@ -92,6 +92,7 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
             .entry_block()
             .with_context(|| anyhow!("entry for segment not found"))?;
 
+        println!("{}", entry.format_ssa(segment.entry_block.unwrap()));
         let value = self.build_block(segment, entry.insts(), &[])?;
 
         self.builder.ins().return_(value.as_struct());
@@ -133,7 +134,7 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
                             let [len, base] = list.values();
                             (element_type, element_size, len, base)
                         }
-                        _ => bail!("Expected list value for indexing"),
+                        t => bail!("Expected list value for indexing found {t:?}"),
                     };
 
                     // Get index

@@ -30,6 +30,9 @@ pub enum Token<'a> {
     Prod,
     Int,
     Log,
+    Sin,
+    Cos,
+    Tan,
     IdentFrag(String),
     Number(String),
     Equal,
@@ -52,7 +55,7 @@ pub enum Token<'a> {
     EndOfInput,
 }
 
-impl<'a> Token<'a> {
+impl Token<'_> {
     pub fn to_small_string(&self) -> String {
         match self {
             Token::IdentFrag(string) | Token::Number(string) => format!("'{}'", string),
@@ -94,6 +97,9 @@ impl<'a> Token<'a> {
                 Token::Exclamation => "'!'",
                 Token::EndOfGroup => "end of group",
                 Token::EndOfInput => "end of input",
+                Token::Sin => r"'\sin'",
+                Token::Cos => r"'\cos'",
+                Token::Tan => r"'\tan'",
             }
             .into(),
         }
@@ -254,6 +260,9 @@ fn flatten_helper<'a>(
                 "prod" => Some(Token::Prod),
                 "int" => Some(Token::Int),
                 "log" => Some(Token::Log),
+                "sin" => Some(Token::Sin),
+                "cos" => Some(Token::Cos),
+                "tan" => Some(Token::Tan),
                 "lt" => Some(Token::Less),
                 "le" => Some(Token::LessEqual),
                 "leq" => Some(Token::LessEqual),

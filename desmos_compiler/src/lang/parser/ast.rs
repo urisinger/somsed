@@ -9,6 +9,9 @@ pub enum UnaryOperator {
     Neg,
     Fac,
     Sqrt,
+    Sin,
+    Cos,
+    Tan,
     Norm,
     PointX,
     PointY,
@@ -223,6 +226,29 @@ impl Expression {
                     expr.collect_functions(env, param_types, fns)?;
                 }
             }
+
+            Expression::For { body, lists } => {
+                // Create extended param_types with loop variables bound to their scalar types
+                let mut scoped_params = param_types.clone();
+
+                for (name, expr) in lists {
+                    expr.collect_functions(env, param_types, fns)?;
+
+                    let ty = expr.ty(env, param_types)?;
+                    match ty {
+                        IRType::List(scaler_ty) => {
+                            scoped_params.insert(name.clone(), IRType::Scaler(scaler_ty));
+                        }
+                        IRType::Scaler(_) => {
+                            bail!("expected List in For loop, found Scaler for variable '{name}'");
+                        }
+                    }
+                }
+
+                // Recurse into body using the updated param scope
+                body.collect_functions(env, &scoped_params, fns)?;
+            }
+
             Expression::Piecewise {
                 test,
                 consequent,
@@ -239,7 +265,6 @@ impl Expression {
                 body,
                 substitutions,
             } => todo!(),
-            Expression::For { body, lists } => todo!(),
             Expression::Number(_) | Expression::Identifier(_) => {}
 
             Expression::ListRange {

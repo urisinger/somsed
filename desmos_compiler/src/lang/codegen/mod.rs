@@ -20,10 +20,12 @@ pub struct IRGen<'a> {
     exprs: &'a Expressions,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Scope {
     types: HashMap<String, IRType>,
     args: HashMap<String, Instruction>,
+
+    max_block_arg: usize,
 }
 
 impl Scope {
@@ -54,7 +56,7 @@ impl<'a> IRGen<'a> {
         self.exprs
     }
 
-    pub fn codegen_node(
+    fn codegen_node(
         &mut self,
         segment: &mut IRSegment,
         scope: &Scope,
@@ -185,7 +187,7 @@ impl<'a> IRGen<'a> {
                     }
                     Some(ExpressionListEntry::Assignment { .. }) => {
                         if args.len() == 1 {
-                            let lhs = self.get_var(segment, scope, current_block, &callee)?;
+                            let lhs = self.get_var(segment, scope, current_block, callee)?;
                             let rhs = self.codegen_node(segment, scope, current_block, &args[0])?;
                             Self::codegen_binary_op(
                                 segment,
@@ -204,29 +206,96 @@ impl<'a> IRGen<'a> {
                     _ => unreachable!("idents should be VarDef or FnDef only"),
                 },
             },
-            ListRange {
-                before_ellipsis,
-                after_ellipsis,
-            } => todo!(),
-            Call { callee, args } => todo!(),
-            ChainedComparison(chained_comparison) => todo!(),
-            Piecewise {
-                test,
-                consequent,
-                alternate,
-            } => todo!(),
-            SumProd {
-                kind,
-                variable,
-                lower_bound,
-                upper_bound,
-                body,
-            } => todo!(),
-            With {
-                body,
-                substitutions,
-            } => todo!(),
-            For { body, lists } => todo!(),
+
+            For { body, lists } => {
+                let mut new_scope: Scope = scope.clone();
+
+                for (name, expr) in lists {
+                    let list = self.codegen_node(segment, scope, current_block, expr)?;
+
+                    let ty = match list.ty() {
+                        IRType::List(t) => t,
+                        IRType::Scaler(_) => bail!("expected List, found Scaler"),
+                    };
+                    new_scope.insert(
+                        name,
+                        Instruction::BlockArg {
+                            index: scope.max_block_arg,
+                        },
+                        IRType::Scaler(ty),
+                    );
+                    new_scope.max_block_arg += 1;
+                }
+
+                let body_block = segment.create_block();
+                let body_instr = self.codegen_node(segment, &new_scope, body_block, body)?;
+
+                let mut inner_block = body_block;
+
+                let mut block_arg = scope.max_block_arg;
+
+                // We walk the loops from innermost to outermost (reverse)
+                for (i, (name, expr)) in lists.iter().rev().enumerate() {
+                    let list = self.codegen_node(segment, scope, current_block, expr)?;
+
+                    let ty = match list.ty() {
+                        IRType::List(t) => t,
+                        IRType::Scaler(_) => bail!("expected List, found Scaler"),
+                    };
+
+                    new_scope.insert(
+                        name.clone(),
+                        Instruction::BlockArg { index: block_arg },
+                        IRType::Scaler(ty),
+                    );
+                    block_arg += 1;
+
+                    let output_type = match body_instr.ty() {
+                        IRType::Scaler(t) => IRType::List(t),
+                        IRType::List(_) => bail!("expected Scaler, found List"),
+                    };
+
+                    // If it's the outermost loop, emit into current_block
+                    if i == lists.len() - 1 {
+                        segment.push(
+                            current_block,
+                            Instruction::Map {
+                                lists: vec![list],
+                                args: vec![], // or handle args here if needed
+                                block_id: inner_block,
+                            },
+                            output_type,
+                        );
+                    } else {
+                        // Otherwise, insert into a new block and nest
+                        let map_block = segment.create_block();
+                        segment.push(
+                            map_block,
+                            Instruction::Map {
+                                lists: vec![list],
+                                args: vec![],
+                                block_id: inner_block,
+                            },
+                            output_type,
+                        );
+                        inner_block = map_block;
+                    }
+                }
+
+                segment
+                    .blocks()
+                    .get(current_block.0)
+                    .map(|block| InstID::new(current_block, block.insts().len() - 1, block.ret()))
+                    .expect("block does not exist")
+            }
+
+            Call { .. } => todo!(),
+            ChainedComparison(_) => todo!(),
+            Piecewise { .. } => todo!(),
+            SumProd { .. } => todo!(),
+            ListRange { .. } => todo!(),
+
+            With { .. } => todo!(),
         })
     }
 
@@ -272,7 +341,11 @@ impl<'a> IRGen<'a> {
                 )
             })
             .collect();
-        let scope = Scope { types, args };
+        let scope = Scope {
+            types,
+            args,
+            max_block_arg: 0,
+        };
 
         _ = self.codegen_node(&mut segment, &scope, entry_block, node)?;
 

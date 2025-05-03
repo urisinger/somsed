@@ -151,6 +151,22 @@ impl IRBlock {
         idx
     }
 
+    pub fn format_ssa(&self, block_id: BlockID) -> String {
+        let mut output = String::new();
+        for (i, instr) in self.instructions.iter().enumerate() {
+            let ty = if i == self.instructions.len() - 1 {
+                format!(" -> {}", self.ret)
+            } else {
+                format!(": {}", self.ret)
+            };
+            output.push_str(&format!(
+                "%{block}_{i} = {instr:?}{ty}\n",
+                block = block_id.0
+            ));
+        }
+        output
+    }
+
     pub fn get(&self, index: usize) -> Option<&Instruction> {
         self.instructions.get(index)
     }

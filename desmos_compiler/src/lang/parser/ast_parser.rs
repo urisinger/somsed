@@ -120,6 +120,9 @@ const WITH_PRECEDENCE: (u8, u8) = (3, 4);
 fn get_prefix_op(token: &Token) -> Option<(UnaryOperator, (), u8)> {
     Some(match token {
         Token::Minus => (UnaryOperator::Neg, (), 7),
+        Token::Sin => (UnaryOperator::Sin, (), 7),
+        Token::Cos => (UnaryOperator::Cos, (), 7),
+        Token::Tan => (UnaryOperator::Tan, (), 7),
         _ => return None,
     })
 }

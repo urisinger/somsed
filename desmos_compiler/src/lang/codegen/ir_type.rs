@@ -64,6 +64,41 @@ impl Expression {
                 ty_binary(lt, *operation, rt)
             }
             Expression::CallOrMultiply { callee, args } => ty_call(env, params, callee, args),
+
+            Expression::For { body, lists } => {
+                let mut scoped_params = params.clone();
+
+                for (name, expr) in lists {
+                    let ty = expr.ty(env, &scoped_params)?;
+                    match ty {
+                        IRType::List(scaler_type) => {
+                            scoped_params.insert(name.clone(), IRType::Scaler(scaler_type));
+                        }
+                        IRType::Scaler(_) => bail!("expected List, found Scaler"),
+                    }
+                }
+
+                // Type of the body inside the loop (with new bindings)
+                let mut body_ty = body.ty(env, &scoped_params)?;
+
+                // Wrap the result type in a List for each nesting level
+                for (name, expr) in lists.iter().rev() {
+                    match expr.ty(env, &scoped_params)? {
+                        IRType::List(scaler_type) => match body_ty {
+                            IRType::Scaler(_) => {
+                                body_ty = IRType::List(scaler_type);
+                            }
+                            IRType::List(inner) => {
+                                body_ty = IRType::List(inner);
+                            }
+                        },
+                        _ => bail!("expected List in loop expression for '{name}'"),
+                    }
+                }
+
+                Ok(body_ty)
+            }
+
             Expression::Call { callee, args } => todo!(),
             Expression::ChainedComparison(chained_comparison) => todo!(),
             Expression::Piecewise {
@@ -82,7 +117,6 @@ impl Expression {
                 body,
                 substitutions,
             } => todo!(),
-            Expression::For { body, lists } => todo!(),
 
             Expression::ListRange {
                 before_ellipsis,
@@ -98,6 +132,7 @@ fn ty_binary(lhs: IRType, op: BinaryOperator, rhs: IRType) -> Result<IRType> {
     match (lhs, op, rhs) {
         (Scaler(lhs), op, Scaler(rhs)) => Ok(Scaler(ty_scaler_binary(lhs, op, rhs)?)),
 
+        (List(lhs), BinaryOperator::Index, Scaler(IRScalerType::Number)) => Ok(Scaler(lhs)),
         (List(lhs), op, Scaler(rhs))
         | (Scaler(lhs), op, List(rhs))
         | (List(lhs), op, List(rhs)) => Ok(List(ty_scaler_binary(lhs, op, rhs)?)),

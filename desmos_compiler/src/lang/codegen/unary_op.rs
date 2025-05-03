@@ -53,9 +53,9 @@ impl IRGen<'_> {
             match op {
                 UnaryOperator::Neg => Instruction::Neg,
                 UnaryOperator::Sqrt => Instruction::Sqrt,
-                //UnaryOperator::Sin => Instruction::Sin,
-                //UnaryOperator::Cos => Instruction::Cos,
-                //UnaryOperator::Tan => Instruction::Tan,
+                UnaryOperator::Sin => Instruction::Sin,
+                UnaryOperator::Cos => Instruction::Cos,
+                UnaryOperator::Tan => Instruction::Tan,
                 _ => todo!(),
             }(lhs),
             IRType::NUMBER,

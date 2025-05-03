@@ -37,6 +37,9 @@ impl IRGen<'_> {
             (Scaler(Point), Scaler(Number)) => {
                 Self::codegen_point_number_op(segment, current_block, lhs, op, rhs)
             }
+            (List(list_t), Scaler(Number)) if op == BinaryOperator::Index => {
+                Ok(segment.push(current_block, Instruction::Index(lhs, rhs), Scaler(list_t)))
+            }
 
             // Scalar-List or List-Scalar
             (List(_), Scaler(_)) | (Scaler(_), List(_)) | (List(_), List(_)) => {
