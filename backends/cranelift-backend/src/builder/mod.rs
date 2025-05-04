@@ -92,10 +92,10 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
             .entry_block()
             .with_context(|| anyhow!("entry for segment not found"))?;
 
-        println!("{}", entry.format_ssa(segment.entry_block.unwrap()));
         let value = self.build_block(segment, entry.insts(), &[])?;
 
         self.builder.ins().return_(value.as_struct());
+        println!("{}", self.builder.func);
 
         self.builder.finalize();
 
@@ -290,7 +290,10 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
 
                 Instruction::FnArg { index } => self.args[*index],
 
-                Instruction::BlockArg { index } => *block_args.get(*index).unwrap(),
+                Instruction::BlockArg { index } => {
+                    dbg!(&block_args);
+                    *block_args.get(*index).unwrap()
+                }
 
                 Instruction::NumberList(insts) => {
                     CraneliftValue::List(CraneliftList::Number(self.build_new_list(
@@ -319,11 +322,16 @@ impl<'a, 'ctx> CraneliftBuilder<'a, 'ctx> {
                         self.codegen_list_map(
                             &lists
                                 .iter()
-                                .map(|inst| {
-                                    Ok(match values[inst.inst()] {
-                                        CraneliftValue::List(list) => list,
-                                        _ => bail!("expected list"),
-                                    })
+                                .map(|lists| {
+                                    lists
+                                        .iter()
+                                        .map(|inst| {
+                                            Ok(match values[inst.inst()] {
+                                                CraneliftValue::List(list) => list,
+                                                _ => bail!("expected list"),
+                                            })
+                                        })
+                                        .collect()
                                 })
                                 .collect::<Result<Vec<_>, _>>()?,
                             if let IRType::Scaler(t) = inner_block.ret() {

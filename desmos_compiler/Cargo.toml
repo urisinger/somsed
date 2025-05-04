@@ -19,3 +19,4 @@ logos = "0.15.0"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"
+assert_matches = "1.5.0"

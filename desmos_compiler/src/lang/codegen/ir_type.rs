@@ -40,15 +40,6 @@ impl Expression {
                 }
             }
 
-            /* Expression::Index { list, index } => {
-                let index_ty = index.ty(env, params)?;
-                anyhow::ensure!(index_ty == Scaler(Number), "");
-                let list_ty = list.ty(env, params)?;
-                match list_ty {
-                    List(scaler) => Ok(Scaler(scaler)),
-                    Scaler(_) => anyhow::bail!("cannot index scaler"),
-                }
-            }*/
             Expression::Identifier(name) => ty_ident(env, params, name),
 
             Expression::UnaryOperation { operation, arg } => {
@@ -79,24 +70,12 @@ impl Expression {
                 }
 
                 // Type of the body inside the loop (with new bindings)
-                let mut body_ty = body.ty(env, &scoped_params)?;
+                let body_ty = body.ty(env, &scoped_params)?;
 
-                // Wrap the result type in a List for each nesting level
-                for (name, expr) in lists.iter().rev() {
-                    match expr.ty(env, &scoped_params)? {
-                        IRType::List(scaler_type) => match body_ty {
-                            IRType::Scaler(_) => {
-                                body_ty = IRType::List(scaler_type);
-                            }
-                            IRType::List(inner) => {
-                                body_ty = IRType::List(inner);
-                            }
-                        },
-                        _ => bail!("expected List in loop expression for '{name}'"),
-                    }
+                match body_ty {
+                    Scaler(s) => Ok(List(s)),
+                    List(_) => bail!("Expected scaler, found list"),
                 }
-
-                Ok(body_ty)
             }
 
             Expression::Call { callee, args } => todo!(),

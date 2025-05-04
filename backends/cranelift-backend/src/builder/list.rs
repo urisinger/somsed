@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
-use cranelift::prelude::*;
+use cranelift::{codegen::ir::StackSlot, prelude::*};
 use cranelift_module::Module;
 use desmos_compiler::lang::codegen::ir::{IRScalerType, IRType};
 
@@ -55,156 +55,205 @@ impl CraneliftBuilder<'_, '_> {
         }
     }
 
-    /// In-place transformation of each element in a "list struct".
-    ///
-    /// - `list_struct`: A struct containing [ size (i64 or i32), pointer (T*) ].
-    /// - `element_type`: The LLVM type of each element (e.g. `context.f64_type().into()`).
-    /// - `transform`: A closure that takes a loaded element and returns a new element.
-    ///
-    /// Returns the same `StructValue<'ctx>`, after in-place modification.
     pub fn codegen_list_map(
         &mut self,
-        lists: &[CraneliftList],
+        lists: &[Vec<CraneliftList>],
         output_ty: IRScalerType,
         transform: impl Fn(&mut Self, &[CraneliftScaler]) -> Result<CraneliftScaler>,
     ) -> Result<CraneliftList> {
         let index_type = types::I64;
 
-        let size = lists
-            .iter()
-            .map(|list| match list {
-                CraneliftList::Number(s) => s[0],
-                CraneliftList::Point(s) => s[0],
-            })
-            .fold(None, |last_size, s| {
-                if let Some(last_size) = last_size {
-                    let lt = self.builder.ins().icmp(IntCC::SignedLessThan, last_size, s);
-                    Some(self.builder.ins().select(lt, last_size, s))
-                } else {
-                    Some(s)
-                }
-            })
-            .with_context(|| anyhow!("list cannot be empty"))?;
+        let output_size = match output_ty {
+            IRScalerType::Number => 8,
+            IRScalerType::Point => 16,
+        };
+        let output_size_val = self.builder.ins().iconst(index_type, output_size);
 
-        let output_size = self.builder.ins().iconst(
-            types::I64,
-            match output_ty {
-                IRScalerType::Number => 8,
-                IRScalerType::Point => 16,
-            },
-        );
+        let mut total_size: Option<Value> = None;
 
-        let output_byte_size = self.builder.ins().imul(size, output_size);
+        for group in lists {
+            let mut group_size: Option<Value> = None;
 
-        let output_pointer = self.codegen_allocate(output_byte_size);
-        let output_struct = [size, output_pointer];
+            for list in group {
+                let size = match list {
+                    CraneliftList::Number([size, _]) => *size,
+                    CraneliftList::Point([size, _]) => *size,
+                };
 
-        let index_var = self.builder.create_sized_stack_slot(StackSlotData::new(
+                group_size = Some(match group_size {
+                    None => size,
+                    Some(acc) => {
+                        let lt = self.builder.ins().icmp(IntCC::SignedLessThan, acc, size);
+                        self.builder.ins().select(lt, acc, size)
+                    }
+                });
+            }
+
+            let group_size = group_size.context("empty list group")?;
+
+            total_size = Some(match total_size {
+                None => group_size,
+                Some(acc) => self.builder.ins().imul(acc, group_size),
+            });
+        }
+
+        let total_size = total_size.context("no list groups")?;
+        let total_bytes = self.builder.ins().imul(total_size, output_size_val);
+        let output_ptr = self.codegen_allocate(total_bytes);
+        let output_struct = [total_size, output_ptr];
+
+        self.codegen_list_map_recursive(
+            lists,
+            0,
+            &[],
+            &[],
+            output_ty,
+            output_size_val,
+            output_ptr,
+            &transform,
+        )?;
+
+        Ok(match output_ty {
+            IRScalerType::Number => CraneliftList::Number(output_struct),
+            IRScalerType::Point => CraneliftList::Point(output_struct),
+        })
+    }
+
+    fn codegen_list_map_recursive(
+        &mut self,
+        lists: &[Vec<CraneliftList>],
+        depth: usize,
+        index_slots: &[StackSlot],
+        index_vals: &[Value],
+        output_ty: IRScalerType,
+        output_size_val: Value,
+        output_ptr: Value,
+        transform: &impl Fn(&mut Self, &[CraneliftScaler]) -> Result<CraneliftScaler>,
+    ) -> Result<()> {
+        let index_type = types::I64;
+
+        let index_slot = self.builder.create_sized_stack_slot(StackSlotData::new(
             StackSlotKind::ExplicitSlot,
             8,
             3,
         ));
         let zero = self.builder.ins().iconst(index_type, 0);
-        self.builder.ins().stack_store(zero, index_var, 0);
+        self.builder.ins().stack_store(zero, index_slot, 0);
 
-        let header_block = self.builder.create_block();
-        let body_block = self.builder.create_block();
-        let exit_block = self.builder.create_block();
+        let header = self.builder.create_block();
+        let body = self.builder.create_block();
+        let exit = self.builder.create_block();
 
-        self.builder.ins().jump(header_block, &[]);
-        self.builder.switch_to_block(header_block);
+        self.builder.ins().jump(header, &[]);
+        self.builder.switch_to_block(header);
 
-        let current_index = self.builder.ins().stack_load(index_type, index_var, 0);
+        let index = self.builder.ins().stack_load(index_type, index_slot, 0);
 
-        let condition = self
+        let group = &lists[depth];
+        let group_size = group
+            .iter()
+            .map(|list| match list {
+                CraneliftList::Number([s, _]) => *s,
+                CraneliftList::Point([s, _]) => *s,
+            })
+            .reduce(|a, b| {
+                let lt = self.builder.ins().icmp(IntCC::SignedLessThan, a, b);
+                self.builder.ins().select(lt, a, b)
+            })
+            .unwrap();
+
+        let cond = self
             .builder
             .ins()
-            .icmp(IntCC::UnsignedLessThan, current_index, size);
-        self.builder
-            .ins()
-            .brif(condition, body_block, &[], exit_block, &[]);
+            .icmp(IntCC::UnsignedLessThan, index, group_size);
+        self.builder.ins().brif(cond, body, &[], exit, &[]);
 
-        self.builder.switch_to_block(body_block);
+        self.builder.switch_to_block(body);
 
-        let args: Vec<_> = lists
-            .iter()
-            .map(|list| {
-                let ([_, input_ptr], element_size) = match list {
-                    CraneliftList::Number(s) => (s, 8),
-                    CraneliftList::Point(s) => (s, 16),
-                };
+        let mut index_slots = index_slots.to_vec();
+        let mut index_vals = index_vals.to_vec();
+        index_slots.push(index_slot);
+        index_vals.push(index);
 
-                let elem_size_val = self.builder.ins().iconst(index_type, element_size);
+        if depth + 1 == lists.len() {
+            let mut all_scalars = Vec::new();
+            for (g, &idx) in lists.iter().zip(&index_vals) {
+                for list in g {
+                    let (ptr, ty) = match list {
+                        CraneliftList::Number([_, ptr]) => (*ptr, IRScalerType::Number),
+                        CraneliftList::Point([_, ptr]) => (*ptr, IRScalerType::Point),
+                    };
+                    let field_size = match ty {
+                        IRScalerType::Number => 8,
+                        IRScalerType::Point => 16,
+                    };
+                    let field_size_val = self.builder.ins().iconst(index_type, field_size);
+                    let offset = self.builder.ins().imul(idx, field_size_val);
+                    let addr = self.builder.ins().iadd(ptr, offset);
 
-                let offset = self.builder.ins().imul(current_index, elem_size_val);
-
-                // input_ptr + offset
-                let element_ptr = self.builder.ins().iadd(*input_ptr, offset);
-
-                // load element fields (based on type)
-                match list {
-                    CraneliftList::Number(_) => {
-                        let value =
-                            self.builder
+                    let scalar = match ty {
+                        IRScalerType::Number => {
+                            let val = self
+                                .builder
                                 .ins()
-                                .load(types::F64, MemFlags::new(), element_ptr, 0);
-                        CraneliftScaler::Number([value])
-                    }
-                    CraneliftList::Point(_) => {
-                        let x =
-                            self.builder
+                                .load(types::F64, MemFlags::new(), addr, 0);
+                            CraneliftScaler::Number([val])
+                        }
+                        IRScalerType::Point => {
+                            let x = self
+                                .builder
                                 .ins()
-                                .load(types::F64, MemFlags::new(), element_ptr, 0);
-                        let y =
-                            self.builder
+                                .load(types::F64, MemFlags::new(), addr, 0);
+                            let y = self
+                                .builder
                                 .ins()
-                                .load(types::F64, MemFlags::new(), element_ptr, 8);
-                        CraneliftScaler::Point([x, y])
-                    }
+                                .load(types::F64, MemFlags::new(), addr, 8);
+                            CraneliftScaler::Point([x, y])
+                        }
+                    };
+                    all_scalars.push(scalar);
                 }
-            })
-            .collect();
+            }
 
-        // apply transformation (returns CraneliftValue)
-        let transformed = transform(self, &args)?;
+            let result = transform(self, &all_scalars)?;
+            let last_index = *index_vals.last().unwrap();
+            let offset = self.builder.ins().imul(last_index, output_size_val);
+            let ptr = self.builder.ins().iadd(output_ptr, offset);
 
-        let transformed_values: &[Value] = match &transformed {
-            CraneliftScaler::Number(x) => x,
-            CraneliftScaler::Point(x) => x,
-        };
+            let values = match result {
+                CraneliftScaler::Number([x]) => vec![x],
+                CraneliftScaler::Point([x, y]) => vec![x, y],
+            };
 
-        let offset = self.builder.ins().imul(current_index, output_size);
-        // compute output offset: output_ptr + offset
-        let output_ptr = self.builder.ins().iadd(output_pointer, offset);
-
-        // store fields
-        for (i, field) in transformed_values.iter().enumerate() {
-            let field_offset = (i * 8) as i32;
-            self.builder
-                .ins()
-                .store(MemFlags::new(), *field, output_ptr, field_offset);
+            for (i, val) in values.into_iter().enumerate() {
+                self.builder
+                    .ins()
+                    .store(MemFlags::new(), val, ptr, (i * 8) as i32);
+            }
+        } else {
+            self.codegen_list_map_recursive(
+                lists,
+                depth + 1,
+                &index_slots,
+                &index_vals,
+                output_ty,
+                output_size_val,
+                output_ptr,
+                transform,
+            )?;
         }
 
-        // Increment index
         let one = self.builder.ins().iconst(index_type, 1);
-        let next_index = self.builder.ins().iadd(current_index, one);
-        self.builder.ins().stack_store(next_index, index_var, 0);
+        let next = self.builder.ins().iadd(index, one);
+        self.builder.ins().stack_store(next, index_slot, 0);
+        self.builder.ins().jump(header, &[]);
 
-        // Jump back to loop header
-        self.builder.ins().jump(header_block, &[]); // Branch back to loop header
+        self.builder.switch_to_block(exit);
+        self.builder.seal_block(header);
+        self.builder.seal_block(body);
+        self.builder.seal_block(exit);
 
-        self.builder.switch_to_block(exit_block);
-
-        self.builder.seal_block(header_block);
-        self.builder.seal_block(body_block);
-        self.builder.seal_block(exit_block);
-
-        let output = match output_ty {
-            IRScalerType::Number => CraneliftList::Number(output_struct),
-            IRScalerType::Point => CraneliftList::Point(output_struct),
-        };
-
-        Ok(output)
+        Ok(())
     }
 
     fn codegen_allocate(&mut self, size: Value) -> Value {

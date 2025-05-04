@@ -92,7 +92,7 @@ pub enum Instruction {
     Index(InstID, InstID),
 
     Map {
-        lists: Vec<InstID>,
+        lists: Vec<Vec<InstID>>,
         args: Vec<InstID>,
         block_id: BlockID,
     },

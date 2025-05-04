@@ -208,7 +208,10 @@ impl<'a> IRGen<'a> {
             },
 
             For { body, lists } => {
-                let mut new_scope: Scope = scope.clone();
+                let mut new_scope = scope.clone();
+
+                let mut arg_index = scope.max_block_arg;
+                let mut grouped_lists: Vec<Vec<InstID>> = Vec::new();
 
                 for (name, expr) in lists {
                     let list = self.codegen_node(segment, scope, current_block, expr)?;
@@ -217,76 +220,36 @@ impl<'a> IRGen<'a> {
                         IRType::List(t) => t,
                         IRType::Scaler(_) => bail!("expected List, found Scaler"),
                     };
+
                     new_scope.insert(
                         name,
-                        Instruction::BlockArg {
-                            index: scope.max_block_arg,
-                        },
+                        Instruction::BlockArg { index: arg_index },
                         IRType::Scaler(ty),
                     );
-                    new_scope.max_block_arg += 1;
+
+                    grouped_lists.push(vec![list]);
+                    arg_index += 1;
                 }
+
+                new_scope.max_block_arg = arg_index;
 
                 let body_block = segment.create_block();
-                let body_instr = self.codegen_node(segment, &new_scope, body_block, body)?;
+                let body_result = self.codegen_node(segment, &new_scope, body_block, body)?;
 
-                let mut inner_block = body_block;
+                let result_type = match body_result.ty() {
+                    IRType::Scaler(t) => IRType::List(t),
+                    IRType::List(_) => bail!("expected Scaler, found List"),
+                };
 
-                let mut block_arg = scope.max_block_arg;
-
-                // We walk the loops from innermost to outermost (reverse)
-                for (i, (name, expr)) in lists.iter().rev().enumerate() {
-                    let list = self.codegen_node(segment, scope, current_block, expr)?;
-
-                    let ty = match list.ty() {
-                        IRType::List(t) => t,
-                        IRType::Scaler(_) => bail!("expected List, found Scaler"),
-                    };
-
-                    new_scope.insert(
-                        name.clone(),
-                        Instruction::BlockArg { index: block_arg },
-                        IRType::Scaler(ty),
-                    );
-                    block_arg += 1;
-
-                    let output_type = match body_instr.ty() {
-                        IRType::Scaler(t) => IRType::List(t),
-                        IRType::List(_) => bail!("expected Scaler, found List"),
-                    };
-
-                    // If it's the outermost loop, emit into current_block
-                    if i == lists.len() - 1 {
-                        segment.push(
-                            current_block,
-                            Instruction::Map {
-                                lists: vec![list],
-                                args: vec![], // or handle args here if needed
-                                block_id: inner_block,
-                            },
-                            output_type,
-                        );
-                    } else {
-                        // Otherwise, insert into a new block and nest
-                        let map_block = segment.create_block();
-                        segment.push(
-                            map_block,
-                            Instruction::Map {
-                                lists: vec![list],
-                                args: vec![],
-                                block_id: inner_block,
-                            },
-                            output_type,
-                        );
-                        inner_block = map_block;
-                    }
-                }
-
-                segment
-                    .blocks()
-                    .get(current_block.0)
-                    .map(|block| InstID::new(current_block, block.insts().len() - 1, block.ret()))
-                    .expect("block does not exist")
+                segment.push(
+                    current_block,
+                    Instruction::Map {
+                        lists: grouped_lists,
+                        args: vec![],
+                        block_id: body_block,
+                    },
+                    result_type,
+                )
             }
 
             Call { .. } => todo!(),

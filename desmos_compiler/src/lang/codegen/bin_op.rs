@@ -82,7 +82,7 @@ impl IRGen<'_> {
                 segment.push(
                     current_block,
                     Instruction::Map {
-                        lists: vec![lhs],
+                        lists: vec![vec![lhs]],
                         args: vec![rhs],
                         block_id: inner_block,
                     },
@@ -110,7 +110,7 @@ impl IRGen<'_> {
                 segment.push(
                     current_block,
                     Instruction::Map {
-                        lists: vec![rhs],
+                        lists: vec![vec![rhs]],
                         args: vec![lhs],
                         block_id: inner_block,
                     },
@@ -140,7 +140,7 @@ impl IRGen<'_> {
                 segment.push(
                     current_block,
                     Instruction::Map {
-                        lists: vec![lhs, rhs],
+                        lists: vec![vec![lhs, rhs]],
                         args: vec![],
                         block_id: inner_block,
                     },

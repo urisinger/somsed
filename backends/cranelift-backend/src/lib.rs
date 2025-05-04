@@ -127,13 +127,13 @@ mod tests {
         expressions::{ExpressionId, Expressions},
         lang::{
             codegen::{
-                backend::{
-                    jit::{ExplicitFn, ExplicitJitFn, JitValue, PointValue},
+                ir::{IRType, SegmentKey},
+                jit::{
+                    function::{ExplicitFn, ExplicitJitFn, JitValue, PointValue},
                     ExecutionEngine,
                 },
-                ir::{IRType, SegmentKey},
             },
-            expr::Expr,
+            parser::ast::{ChainedComparison, ExpressionListEntry},
         },
     };
 
@@ -191,8 +191,10 @@ mod tests {
             panic!("Compilation errors in '{}': {:?}", test_name, errors);
         }
 
-        let args = vec![IRType::NUMBER; inputs.len()];
+        let args = vec![IRType::NUMBER];
         let key = SegmentKey::new("explicit_0".to_string(), args);
+
+        println!("{:?}, {:?}", ir, key);
         let ty = ir
             .get_segment(&key)
             .and_then(|segment| segment.ret())
@@ -268,7 +270,7 @@ mod tests {
 
         for (i, (input, inputs)) in test_cases.iter().enumerate() {
             let id = ExpressionId(i as u32);
-            let expr = &expressions.exprs[&id].expr;
+            let expr = &expressions.exprs[&id];
 
             let (x, y) = {
                 let mut it = inputs.iter();
@@ -276,7 +278,7 @@ mod tests {
             };
 
             match expr {
-                Expr::Implicit { .. } => {
+                ExpressionListEntry::Relation(ChainedComparison { .. }) => {
                     let args = vec![IRType::NUMBER, IRType::NUMBER];
                     let lhs_key = SegmentKey::new(format!("implicit_{}_lhs", id.0), args.clone());
                     let rhs_key = SegmentKey::new(format!("implicit_{}_rhs", id.0), args);
@@ -323,7 +325,7 @@ mod tests {
                     }
                 }
 
-                Expr::Explicit { .. } => {
+                ExpressionListEntry::Expression { .. } => {
                     panic!(
                         "Test '{}' failed: Expected an implicit expression, got explicit",
                         input

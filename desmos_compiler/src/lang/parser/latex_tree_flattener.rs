@@ -298,38 +298,38 @@ mod tests {
         assert_eq!(flatten(&[Char('1')]).unwrap(), vec![Tk::Number("1".into())]);
 
         assert_eq!(
-            flatten(&[Char('2'), Char('.')]),
-            Ok(vec![Tk::Number("2.".into())])
+            flatten(&[Char('2'), Char('.')]).unwrap(),
+            vec![Tk::Number("2.".into())]
         );
 
         assert_eq!(
-            flatten(&[Char('2'), Char(' '), Char('.'), Char('.')]),
-            Ok(vec![Tk::Number("2.".into()), Tk::Dot])
+            flatten(&[Char('2'), Char(' '), Char('.'), Char('.')]).unwrap(),
+            vec![Tk::Number("2.".into()), Tk::Dot]
         );
 
         assert_eq!(
-            flatten(&[Char('2'), Char('8'), Char('.'), Char('5'), Char('0')]),
-            Ok(vec![Tk::Number("28.50".into()),])
+            flatten(&[Char('2'), Char('8'), Char('.'), Char('5'), Char('0')]).unwrap(),
+            vec![Tk::Number("28.50".into()),]
         );
 
         assert_eq!(
-            flatten(&[Char(' '), Char('.'), Char('5')]),
-            Ok(vec![Tk::Number(".5".into()),])
+            flatten(&[Char(' '), Char('.'), Char('5')]).unwrap(),
+            vec![Tk::Number(".5".into()),]
         );
 
         assert_eq!(
-            flatten(&[Char(' '), Char('.'), Char('.')]),
-            Ok(vec![Tk::Dot, Tk::Dot,])
+            flatten(&[Char(' '), Char('.'), Char('.')]).unwrap(),
+            vec![Tk::Dot, Tk::Dot,]
         );
 
         assert_eq!(
-            flatten(&[Char('.'), Char('.'), Char('.')]),
-            Ok(vec![Tk::Ellipsis,])
+            flatten(&[Char('.'), Char('.'), Char('.')]).unwrap(),
+            vec![Tk::Ellipsis,]
         );
 
         assert_eq!(
-            flatten(&[Char('1'), Char('.'), Char('.'), Char('.')]),
-            Ok(vec![Tk::Number("1".into()), Tk::Ellipsis,])
+            flatten(&[Char('1'), Char('.'), Char('.'), Char('.')]).unwrap(),
+            vec![Tk::Number("1".into()), Tk::Ellipsis,]
         );
 
         assert_eq!(
@@ -340,17 +340,14 @@ mod tests {
                 Char('.'),
                 Char('.'),
                 Char('.'),
-            ]),
-            Ok(vec![Tk::Number("1.4".into()), Tk::Ellipsis,])
+            ])
+            .unwrap(),
+            vec![Tk::Number("1.4".into()), Tk::Ellipsis,]
         );
 
         assert_eq!(
-            flatten(&[Char('4'), Char('.'), Char('.'), Char('.'), Char('6')]),
-            Ok(vec![
-                Tk::Number("4".into()),
-                Tk::Ellipsis,
-                Tk::Number("6".into()),
-            ])
+            flatten(&[Char('4'), Char('.'), Char('.'), Char('.'), Char('6')]).unwrap(),
+            vec![Tk::Number("4".into()), Tk::Ellipsis, Tk::Number("6".into()),]
         );
 
         assert_eq!(
@@ -361,12 +358,13 @@ mod tests {
                 Char('.'),
                 Char('.'),
                 Char('6'),
-            ]),
-            Ok(vec![
+            ])
+            .unwrap(),
+            vec![
                 Tk::Number("4".into()),
                 Tk::Ellipsis,
                 Tk::Number(".6".into()),
-            ])
+            ]
         );
 
         assert_eq!(
@@ -377,20 +375,17 @@ mod tests {
                 Char('.'),
                 Char('.'),
                 Char('6'),
-            ]),
-            Ok(vec![
-                Tk::Number("4.".into()),
-                Tk::Dot,
-                Tk::Number(".6".into()),
             ])
+            .unwrap(),
+            vec![Tk::Number("4.".into()), Tk::Dot, Tk::Number(".6".into()),]
         );
     }
 
     #[test]
     fn punctuation() {
         assert_eq!(
-            flatten(&[Char(','), Char(':'), Char('!')]),
-            Ok(vec![Tk::Comma, Tk::Colon, Tk::Exclamation])
+            flatten(&[Char(','), Char(':'), Char('!')]).unwrap(),
+            vec![Tk::Comma, Tk::Colon, Tk::Exclamation]
         );
     }
 
@@ -420,8 +415,9 @@ mod tests {
                 CtrlSeq(r"ge"),
                 CtrlSeq(r"leq"),
                 CtrlSeq(r"geq"),
-            ]),
-            Ok(vec![
+            ])
+            .unwrap(),
+            vec![
                 Tk::Plus,
                 Tk::Minus,
                 Tk::Asterisk,
@@ -441,7 +437,7 @@ mod tests {
                 Tk::GreaterEqual,
                 Tk::LessEqual,
                 Tk::GreaterEqual,
-            ])
+            ]
         );
     }
 
@@ -456,8 +452,9 @@ mod tests {
                 CtrlSeq("int"),
                 CtrlSeq("log"),
                 Operatorname(vec![Char('w'), Char('i'), Char('t'), Char('h')]),
-            ]),
-            Ok(vec![
+            ])
+            .unwrap(),
+            vec![
                 Tk::Sum,
                 Tk::For,
                 Tk::With,
@@ -465,7 +462,7 @@ mod tests {
                 Tk::Int,
                 Tk::Log,
                 Tk::With,
-            ])
+            ]
         );
     }
 
@@ -476,21 +473,23 @@ mod tests {
                 Char('a'),
                 CtrlSeq("pi"),
                 Operatorname(vec![Char('p'), Char('i')])
-            ]),
-            Ok(vec![
+            ])
+            .unwrap(),
+            vec![
                 Tk::IdentFrag("a".into()),
                 Tk::IdentFrag("pi".into()),
                 Tk::IdentFrag("pi".into()),
-            ])
+            ]
         );
 
         assert_eq!(
-            flatten(&[Operatorname(vec![Char('p'), Char(' '), Char('i')])]),
+            flatten(&[Operatorname(vec![Char('p'), Char(' '), Char('i')])])
+                .map_err(|e| e.to_string()),
             Err(r"'\operatorname' expected letters, found ' '".into())
         );
 
         assert_eq!(
-            flatten(&[Operatorname(vec![CtrlSeq("pi")])]),
+            flatten(&[Operatorname(vec![CtrlSeq("pi")])]).map_err(|e| e.to_string()),
             Err(r"'\operatorname' expected letters, found '\pi'".into())
         );
     }
@@ -505,19 +504,20 @@ mod tests {
                 Char('{'),
                 Char(']'),
                 Char('['),
-            ]),
-            Ok(vec![
+            ])
+            .unwrap(),
+            vec![
                 Tk::LParen,
                 Tk::RParen,
                 Tk::RBrace,
                 Tk::LBrace,
                 Tk::RBracket,
                 Tk::LBracket,
-            ])
+            ]
         );
 
         assert_eq!(
-            flatten(&[Char('('), Char(')'), Char('|')]),
+            flatten(&[Char('('), Char(')'), Char('|')]).map_err(|e| e.to_string()),
             Err(r"'|' must be preceeded by '\left' or '\right'".into())
         );
     }
@@ -546,8 +546,9 @@ mod tests {
                 Char('.'),
                 DelimitedGroup(vec![Char('|'), Char('a'), Char('.'), Char(')')]),
                 Char('6'),
-            ]),
-            Ok(vec![
+            ])
+            .unwrap(),
+            vec![
                 Tk::Number("5".into()),
                 Tk::LPipe,
                 Tk::LBracket,
@@ -563,7 +564,7 @@ mod tests {
                 Tk::Dot,
                 Tk::RParen,
                 Tk::Number("6".into()),
-            ])
+            ]
         );
     }
 
@@ -598,8 +599,8 @@ mod tests {
             unreachable!();
         };
 
-        assert_eq!(flatten(sub), Ok(vec![Tk::Number("1".into())]));
-        assert_eq!(flatten(sup), Ok(vec![Tk::IdentFrag("pi".into())]));
+        assert_eq!(flatten(sub).unwrap(), vec![Tk::Number("1".into())]);
+        assert_eq!(flatten(sup).unwrap(), vec![Tk::IdentFrag("pi".into())]);
     }
 
     #[test]
@@ -627,8 +628,8 @@ mod tests {
             unreachable!();
         };
 
-        assert_eq!(flatten(root), Ok(vec![Tk::Number("1".into())]));
-        assert_eq!(flatten(arg), Ok(vec![Tk::IdentFrag("pi".into())]));
+        assert_eq!(flatten(root).unwrap(), vec![Tk::Number("1".into())]);
+        assert_eq!(flatten(arg).unwrap(), vec![Tk::IdentFrag("pi".into())]);
     }
 
     #[test]
@@ -651,7 +652,7 @@ mod tests {
             unreachable!();
         };
 
-        assert_eq!(flatten(num), Ok(vec![Tk::Number("1".into())]));
-        assert_eq!(flatten(den), Ok(vec![Tk::IdentFrag("pi".into())]));
+        assert_eq!(flatten(num).unwrap(), vec![Tk::Number("1".into())]);
+        assert_eq!(flatten(den).unwrap(), vec![Tk::IdentFrag("pi".into())]);
     }
 }
