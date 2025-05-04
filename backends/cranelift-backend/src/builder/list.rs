@@ -216,8 +216,35 @@ impl CraneliftBuilder<'_, '_> {
             }
 
             let result = transform(self, &all_scalars)?;
-            let last_index = *index_vals.last().unwrap();
-            let offset = self.builder.ins().imul(last_index, output_size_val);
+
+            let mut index = None;
+
+            let sizes = index_vals
+                .iter()
+                .zip(lists.iter().map(|g| {
+                    g.iter()
+                        .map(|list| match list {
+                            CraneliftList::Number([s, _]) => *s,
+                            CraneliftList::Point([s, _]) => *s,
+                        })
+                        .reduce(|a, b| {
+                            let lt = self.builder.ins().icmp(IntCC::SignedLessThan, a, b);
+                            self.builder.ins().select(lt, a, b)
+                        })
+                        .unwrap()
+                }))
+                .collect::<Vec<_>>();
+            for (idx, size) in sizes {
+                index = match index {
+                    Some(index) => {
+                        let index_mul = self.builder.ins().imul(index, size);
+                        Some(self.builder.ins().iadd(index_mul, *idx))
+                    }
+                    None => Some(*idx),
+                };
+            }
+
+            let offset = self.builder.ins().imul(index.unwrap(), output_size_val);
             let ptr = self.builder.ins().iadd(output_ptr, offset);
 
             let values = match result {

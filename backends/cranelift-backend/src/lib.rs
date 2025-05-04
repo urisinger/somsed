@@ -158,19 +158,27 @@ mod tests {
             )*
         };
     }
+
     macro_rules! parse_expected {
-([$($val:expr),*]) => {
-    ExpectedValue::NumberList(vec![$($val),*])
-};
-($val:literal) => {
-    ExpectedValue::Number($val)
-};
+    // Match point lists: [(x, y), (x, y), ...]
+    ([ $( ( $x:expr, $y:expr ) ),* ]) => {
+        ExpectedValue::PointList(vec![ $( ($x, $y) ),* ])
+    };
+    // Match number lists: [x, y, ...]
+    ([ $($val:expr),* ]) => {
+        ExpectedValue::NumberList(vec![ $($val),* ])
+    };
+    // Match single number
+    ($val:literal) => {
+        ExpectedValue::Number($val)
+    };
 }
 
     #[derive(Debug)]
     enum ExpectedValue {
         Number(f64),
         NumberList(Vec<f64>),
+        PointList(Vec<(f64, f64)>),
     }
 
     fn run_explicit_test(
@@ -194,7 +202,6 @@ mod tests {
         let args = vec![IRType::NUMBER];
         let key = SegmentKey::new("explicit_0".to_string(), args);
 
-        println!("{:?}, {:?}", ir, key);
         let ty = ir
             .get_segment(&key)
             .and_then(|segment| segment.ret())
@@ -205,6 +212,7 @@ mod tests {
         let result = match backend.get_explicit_fn(&key.to_string(), &ty) {
             Some(ExplicitJitFn::Number(lhs)) => JitValue::Number(lhs.call(x)),
             Some(ExplicitJitFn::NumberList(lhs)) => JitValue::NumberList(lhs.call(x)),
+            Some(ExplicitJitFn::PointList(lhs)) => JitValue::PointList(lhs.call(x)),
             Some(_) => panic!("Unsupported result type in test '{}'", test_name),
             None => backend
                 .eval(&key.name, &ty)
@@ -221,6 +229,28 @@ mod tests {
             }
             (ExpectedValue::NumberList(expected_list), JitValue::NumberList(actual_list)) => {
                 compare_lists(&expected_list, &actual_list, test_name);
+            }
+
+            (ExpectedValue::PointList(expected_list), JitValue::PointList(actual_list)) => {
+                assert_eq!(
+                    expected_list.len(),
+                    actual_list.len(),
+                    "Test '{}' failed: Point list length mismatch",
+                    test_name
+                );
+                for (i, (expected, actual)) in
+                    expected_list.iter().zip(actual_list.iter()).enumerate()
+                {
+                    assert!(
+                        (expected.0 - actual.x).abs() < 1e-6
+                            && (expected.1 - actual.y).abs() < 1e-6,
+                        "Test '{}' failed at index {}: expected {:?}, got {:?}",
+                        test_name,
+                        i,
+                        expected,
+                        actual
+                    );
+                }
             }
             (exp, got) => {
                 panic!(
@@ -468,8 +498,6 @@ mod tests {
         // Longer list
         test_longer_list: "[1,2,3,4,5,6,7,8,9,10]" => [1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0];
 
-        // Empty list (if supported by your parser/runtime)
-        test_empty_list: "[]" => [];
 
         // Repeated input
         test_list_expression_repeat: "[x, x, x]" => [7.0, 7.0, 7.0], inputs = [7.0];
@@ -497,5 +525,27 @@ mod tests {
         test_scalar_mul_list_lhs: "2 * [3, 4, 5]" => [6.0, 8.0, 10.0];
         test_scalar_div_list_lhs: "20 / [2, 4, 5]" => [10.0, 5.0, 4.0];
         test_scalar_pow_list_lhs: "2^{[3, 4, 5]}" => [8.0, 16.0, 32.0];
+
+    test_for_loop_simple_cartesian:
+        "(a, b) \\operatorname{for} a = [1, 2], b = [10, 20]" => [(1.0, 10.0), (1.0, 20.0), (2.0, 10.0), (2.0, 20.0)], inputs = [];
+
+    test_for_loop_with_expression:
+        "a + b \\operatorname{for} a = [1, 2], b = [3, 4]" => [4.0, 5.0, 5.0, 6.0], inputs = [];
+
+
+    test_for_loop_triple_nested:
+        "(a, b)c \\operatorname{for} a = [1], b = [2], c = [3, 4]" => [(3.0, 6.0), (4.0, 8.0)], inputs = [];
+
+
+    test_for_loop_expression_triple:
+        "a + b + c \\operatorname{for} a = [1], b = [2], c = [3, 4]" => [6.0, 7.0], inputs = [];
+
+
+    test_for_loop_mixed_scalar_and_list:
+        "a + 1 \\operatorname{for} a = [5, 6]" => [6.0, 7.0], inputs = [];
+
+
+    test_for_loop_expression_output_list:
+        "(a, b) \\operatorname{for} a = [1], b = [2]" => [(1.0, 2.0)], inputs = [];
     }
 }
