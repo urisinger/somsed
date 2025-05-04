@@ -6,11 +6,11 @@ A **high-performance compiler and client** for Desmos(written in rust 🔥👑�
 - [x] basic statments, function calls and variables
 - [x] native compilation
 - [x] list types
-- [ ] wack scopes 
+- [x] wack scopes(missing tests) 
 - [ ] not leaking memory with list types
 - [ ] more advanced functions and operators
 - [ ] conditionals
-- [ ] for statments
+- [x] for statments
 - [ ] control flow optimization
 - [ ] close to full desmos compatibilty
 - [ ] gpu compilation
