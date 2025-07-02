@@ -1,6 +1,6 @@
 # Somsed
 
-A **high-performance compiler and client** for Desmos(written in rust 🔥👑🦀).
+A **high-performance compiler and client** for Desmos(written in rust).
 
 # Planned features
 - [x] basic statments, function calls and variables
